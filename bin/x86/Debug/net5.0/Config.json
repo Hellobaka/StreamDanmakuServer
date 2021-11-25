@@ -1,4 +1,0 @@
-{
-    "ServerPort": 6235,
-    "DBConnectString": "server=localhost;Database=StreamDanmuku;Uid=root;Pwd=asq56747277;SslMode=none;"
-}
