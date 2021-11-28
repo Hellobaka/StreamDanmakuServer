@@ -1,4 +1,5 @@
 ﻿using SqlSugar;
+using StreamDanmuku_Server.SocketIO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,5 +16,6 @@ namespace StreamDanmuku_Server.Data
         public string Password { get; set; }
         public int Max { get; set; }
         public DateTime CreateTime { get; set; }
+        public List<Server.MsgHandler> Clients {get;set;}
     }
 }
