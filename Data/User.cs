@@ -1,21 +1,76 @@
 ﻿using System;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Newtonsoft.Json;
 using SqlSugar;
+using StreamDanmuku_Server.SocketIO;
 
 namespace StreamDanmuku_Server.Data
 {
+    [JsonObject(MemberSerialization.OptOut)]
     public class User
     {
+        /// <summary>
+        /// 用户ID
+        /// </summary>
         [SugarColumn(IsIdentity = true, IsPrimaryKey = true)]
         public int Id { get; set; }
+        /// <summary>
+        /// 注册时邮箱
+        /// </summary>
         public string Email { get; set; }
+        /// <summary>
+        /// 显示的昵称
+        /// </summary>
         public string NickName { get; set; }
+        /// <summary>
+        /// MD5后密码
+        /// </summary>
+        [JsonIgnore]
         public string PassWord { get; set; }
+        /// <summary>
+        /// 机密状态变更最后时间
+        /// </summary>
         public DateTime LastChange { get; set; }
+        /// <summary>
+        /// 注册日期
+        /// </summary>
         public DateTime CreateTime { get; set; }
+        /// <summary>
+        /// 加入的房间
+        /// </summary>
+        [SugarColumn(IsIgnore = true)]
+        public int StreamRoom { get; set; }
+        /// <summary>
+        /// 用户状态
+        /// </summary>
+        [SugarColumn(IsIgnore = true)]
+        public UserStatus Status {get;set;} = UserStatus.StandBy;
+        [SugarColumn(IsIgnore = true)]
+        [JsonIgnore]
+        public Server.MsgHandler WebSocket {get;set;}
+        /// <summary>
+        /// 加密通信使用的密钥，暂时搁置
+        /// </summary>
         [SugarColumn(IsIgnore = true)]
         public string XorKey { get; set; }
+
+        public enum UserStatus {
+            /// <summary>
+            /// 直播中
+            /// </summary>
+            Streaming,            
+            /// <summary>
+            /// 观看直播中
+            /// </summary>
+            Client,
+            /// <summary>
+            /// 在大厅
+            /// </summary>
+            StandBy,
+            Banned,
+            OffLine
+        }
         public bool updateUser()
         {
             var db = SQLHelper.GetInstance();
