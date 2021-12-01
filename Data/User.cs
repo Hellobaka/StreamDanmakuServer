@@ -26,7 +26,6 @@ namespace StreamDanmuku_Server.Data
         /// <summary>
         /// MD5后密码
         /// </summary>
-        [JsonIgnore]
         public string PassWord { get; set; }
         /// <summary>
         /// 机密状态变更最后时间
