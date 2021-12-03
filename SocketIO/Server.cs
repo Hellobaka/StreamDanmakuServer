@@ -60,9 +60,14 @@ namespace StreamDanmuku_Server.SocketIO
                         if (room != null)
                         {
                             room.Clients.Remove(this);
-                            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value.WebSocket;
-                            server.Emit("Leave", new { ID = client.Id });
+                            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
+                            if (server != null)
+                                server.WebSocket.Emit("Leave", new { ID = client.Id });
                         }
+                    }
+                    else if (client.Status == User.UserStatus.Streaming)
+                    {
+                        Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
                     }
                     Online.StreamerUser.Remove(ID);
                 }
@@ -113,6 +118,9 @@ namespace StreamDanmuku_Server.SocketIO
                     case "RoomEntered":
                         RoomEntered(socket, json["data"]);
                         break;
+                    case "EnterRoom":
+                        EnterRoom(socket, json["data"]);
+                        break;
                     case "RoomList":
                         RoomList(socket, json["data"]);
                         break;
@@ -139,6 +147,54 @@ namespace StreamDanmuku_Server.SocketIO
             {
                 socket.Emit("Error", Helper.SetError(401));
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"Msg Parse Error, Msg: {e.Message}", false);
+            }
+        }
+
+        private static void EnterRoom(MsgHandler socket, JToken data)
+        {
+            string OnName = "EnterRoom";
+            try
+            {
+                if (Online.Users.ContainsKey(socket.ID))
+                {
+                    var room = Online.Rooms.Find(x => x.RoomID == ((int)data["id"]));
+                    if (room != null)
+                    {
+                        if (room.Password == data["password"].ToString().Trim())
+                        {
+                            if (room.Max > room.ClientCount)
+                            {
+                                socket.Emit(OnName, Helper.SetOK());
+                                RuntimeLog.WriteSystemLog(OnName, $"{OnName} success", true);
+                            }
+                            else
+                            {
+                                socket.Emit(OnName, Helper.SetError(312));
+                                RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, room is full", false);
+                            }
+                        }
+                        else
+                        {
+                            socket.Emit(OnName, Helper.SetError(310));
+                            RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, password is wrong", false);
+                        }
+                    }
+                    else
+                    {
+                        socket.Emit(OnName, Helper.SetError(311));
+                        RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, room is null", false);
+                    }
+                }
+                else
+                {
+                    socket.Emit(OnName, Helper.SetError(307));
+                    RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, user is null", false);
+                }
+            }
+            catch (Exception e)
+            {
+                socket.Emit(OnName, Helper.SetError(-100));
+                RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, {e.Message}", false);
             }
         }
 
@@ -171,7 +227,8 @@ namespace StreamDanmuku_Server.SocketIO
                             RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, verify non password room", false);
                         }
                     }
-                    else {
+                    else
+                    {
                         socket.Emit(OnName, Helper.SetError(311));
                         RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, room is invalid", false);
                     }
@@ -216,8 +273,9 @@ namespace StreamDanmuku_Server.SocketIO
         {
             string OnName = "Leave";
             var user = Online.StreamerUser[socket.ID];
-            var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-            client.WebSocket.Emit(OnName, new { data = data["data"].ToString(), from = user.Id });
+            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
+            server.WebSocket.Emit(OnName, new { from = user.Id });
+            RuntimeLog.WriteSystemLog(OnName, $"{OnName}, client {user.NickName} to server {server.NickName} leave", true);
         }
 
         private static void OnCandidate(MsgHandler socket, JToken data)
@@ -229,27 +287,37 @@ namespace StreamDanmuku_Server.SocketIO
                 var room = Online.Rooms.Find(x => x.RoomID == user.StreamRoom);
                 if (room != null)
                 {
-                    var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-                    server.WebSocket.Emit(OnName, new { msg = data["msg"].ToString(), from = user.Id });
+                    var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
+                    server.WebSocket.Emit(OnName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
+                    RuntimeLog.WriteSystemLog(OnName, $"{OnName}, client {user.NickName} to server {server.NickName} Candidate", true);
+                }
+                else
+                {
+                    System.Console.WriteLine("room is null");
                 }
             }
             else if (user.Status == User.UserStatus.Streaming)
             {
-                var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-                client.WebSocket.Emit(OnName, new { data = data["data"].ToString(), from = user.Id });
+                var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["to"])).Value;
+                client.WebSocket.Emit(OnName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
+                RuntimeLog.WriteSystemLog(OnName, $"{OnName}, server {user.NickName} to client {client.NickName} Candidate", true);
             }
         }
 
         private static void OnAnswer(MsgHandler socket, JToken data)
         {
+            // Client => Server: createAnswer
             string OnName = "Answer";
             var user = Online.StreamerUser[socket.ID];
-            var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-            client.WebSocket.Emit(OnName, new { data = data["data"].ToString(), from = user.Id });
+            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
+            server.WebSocket.Emit(OnName, new { data = data["answer"].ToObject<object>(), from = user.Id });
+            RuntimeLog.WriteSystemLog(OnName, $"{OnName}, user {user.NickName} to server {server.NickName} answer", true);
         }
 
         private static void OnOffer(MsgHandler socket, JToken data)
         {
+            // Client => Server: open request
+            // Server => Client: createOffer
             string OnName = "Offer";
             var user = Online.StreamerUser[socket.ID];
             if (user.Status == User.UserStatus.Client)
@@ -258,15 +326,17 @@ namespace StreamDanmuku_Server.SocketIO
                 if (room != null)
                 {
                     // 拉流端发送offer请求，之后服务器将请求转发给推流端，并携带此用户的ID
-                    var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-                    server.WebSocket.Emit(OnName, new { msg = data["msg"].ToString(), from = user.Id });
+                    var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
+                    server.WebSocket.Emit(OnName, new { data = data["offer"].ToString(), from = user.Id });
+                    RuntimeLog.WriteSystemLog(OnName, $"{OnName}, client {user.NickName} to server {server.NickName} offer", true);
                 }
             }
             else if (user.Status == User.UserStatus.Streaming)
             {
                 // 推流端应当在应答中添加ID
-                var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["from"])).Value;
-                client.WebSocket.Emit(OnName, new { data = data["data"].ToString(), from = user.Id });
+                var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["to"])).Value;
+                client.WebSocket.Emit(OnName, new { data = data["offer"].ToObject<object>(), from = user.Id });
+                RuntimeLog.WriteSystemLog(OnName, $"{OnName}, server {user.NickName} to client {client.NickName} offer", true);
             }
         }
 
@@ -277,7 +347,9 @@ namespace StreamDanmuku_Server.SocketIO
             var user = Online.StreamerUser[socket.ID];
             var room = Online.Rooms.Find(x => x.RoomID == ((int)data["id"]));
             user.Status = User.UserStatus.Client;
+            user.StreamRoom = room.RoomID;
             // Online.StreamerUser[socket.ID].StreamRoom = room.UserID;
+            RuntimeLog.WriteSystemLog(OnName, $"{OnName}, user {user.NickName} enter room {room.RoomID}", true);
             socket.Emit(OnName, Helper.SetOK());
             // if (room != null)
             // {
@@ -437,7 +509,16 @@ namespace StreamDanmuku_Server.SocketIO
                             socket.Emit(resultName, Helper.SetOK("ok", user));
                             if (data["streamFlag"] != null && (bool)data["streamFlag"]?.ToObject<bool>())
                             {
-                                Online.StreamerUser.Add(socket.ID, user);
+                                if (Online.Users.Any(x => x.Value.Id == user.Id))
+                                {
+                                    user.Status = Online.Users.First(x => x.Value.Id == user.Id).Value.Status;
+                                    if (!Online.StreamerUser.Any(x => x.Value.Id == user.Id))
+                                        Online.StreamerUser.Add(socket.ID, user);
+                                }
+                                else
+                                {
+                                    Online.Users.Add(socket.ID, user);
+                                }
                             }
                             else
                             {
