@@ -60,13 +60,15 @@ namespace StreamDanmuku_Server.SocketIO
                         if (room != null)
                         {
                             room.Clients.Remove(this);
+                            Online.Users.First(x=>x.Value.Id==client.Id).Value.Status = User.UserStatus.StandBy;
                             var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
                             if (server != null)
-                                server.WebSocket.Emit("Leave", new { ID = client.Id });
+                                server.WebSocket.Emit("Leave", new { from = client.Id });
                         }
                     }
                     else if (client.Status == User.UserStatus.Streaming)
                     {
+                        MsgHandler.BoardCast(client.Id, "RoomVanish", new { roomID = client.Id });
                         Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
                     }
                     Online.StreamerUser.Remove(ID);
@@ -76,6 +78,34 @@ namespace StreamDanmuku_Server.SocketIO
             public void Emit(string type, object msg)
             {
                 Send((new { type, data = new { msg, timestamp = Helper.TimeStamp } }).ToJson());
+            }
+            public static void BoardCast(int roomID, string type, object msg)
+            {
+                var room = Online.Rooms.Find(x => x.RoomID == roomID);
+                try
+                {
+                    if (room != null)
+                    {
+                        RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast start, type: {type}", true);
+                        room.Clients.ForEach(x => x.Emit(type, msg));
+                        int boardCastCount = room.ClientCount;
+                        var server = Online.StreamerUser.First(x => x.Value.Id == roomID).Value;
+                        if (server != null)
+                        {
+                            server.WebSocket.Emit(type, msg);
+                            boardCastCount++;
+                        }
+                        RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast success, total {boardCastCount} msgs", true);
+                    }
+                    else
+                    {
+                        RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast error, room is null", false);
+                    }
+                }
+                catch (Exception e)
+                {
+                    RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast error, {e.Message}", false);
+                }
             }
         }
         public static void HandleMessage(MsgHandler socket, string Data)
@@ -348,6 +378,7 @@ namespace StreamDanmuku_Server.SocketIO
             var room = Online.Rooms.Find(x => x.RoomID == ((int)data["id"]));
             user.Status = User.UserStatus.Client;
             user.StreamRoom = room.RoomID;
+            room.Clients.Add(socket);
             // Online.StreamerUser[socket.ID].StreamRoom = room.UserID;
             RuntimeLog.WriteSystemLog(OnName, $"{OnName}, user {user.NickName} enter room {room.RoomID}", true);
             socket.Emit(OnName, Helper.SetOK());

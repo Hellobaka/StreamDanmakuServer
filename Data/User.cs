@@ -113,7 +113,7 @@ namespace StreamDanmuku_Server.Data
             User u = new()
             {
                 Email = email,
-                PassWord = password,
+                PassWord = password.ToUpper(),
                 NickName = nickname,
                 CreateTime = DateTime.Now,
                 LastChange = DateTime.Now,
@@ -133,7 +133,7 @@ namespace StreamDanmuku_Server.Data
             }
             else
             {
-                if (user.PassWord == oldPassword)
+                if (user.PassWord.ToUpper() == oldPassword)
                 {
                     user.LastChange = DateTime.Now;
                     user.PassWord = newPassword;
