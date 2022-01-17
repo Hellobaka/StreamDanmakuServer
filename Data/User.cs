@@ -8,7 +8,7 @@ using StreamDanmuku_Server.SocketIO;
 namespace StreamDanmuku_Server.Data
 {
     [JsonObject(MemberSerialization.OptOut)]
-    public class User
+    public class User : ICloneable
     {
         /// <summary>
         /// 用户ID
@@ -44,21 +44,22 @@ namespace StreamDanmuku_Server.Data
         /// 用户状态
         /// </summary>
         [SugarColumn(IsIgnore = true)]
-        public UserStatus Status {get;set;} = UserStatus.StandBy;
+        public UserStatus Status { get; set; } = UserStatus.StandBy;
         [SugarColumn(IsIgnore = true)]
         [JsonIgnore]
-        public Server.MsgHandler WebSocket {get;set;}
+        public Server.MsgHandler WebSocket { get; set; }
         /// <summary>
         /// 加密通信使用的密钥，暂时搁置
         /// </summary>
         [SugarColumn(IsIgnore = true)]
         public string XorKey { get; set; }
 
-        public enum UserStatus {
+        public enum UserStatus
+        {
             /// <summary>
             /// 直播中
             /// </summary>
-            Streaming,            
+            Streaming,
             /// <summary>
             /// 观看直播中
             /// </summary>
@@ -159,6 +160,13 @@ namespace StreamDanmuku_Server.Data
             if (Nickname.Length < 3) { formatError = true; return false; }
             formatError = false;
             return SQLHelper.GetInstance().Queryable<User>().Any(x => x.NickName == Nickname);
+        }
+
+        public object Clone() => MemberwiseClone();
+        public object WithoutSecret()
+        {
+            var c = (User)Clone();
+            return new { c.Id, c.NickName, c.LastChange, c.CreateTime, c.Email, c.Status, c.XorKey };
         }
     }
 }
