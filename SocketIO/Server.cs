@@ -34,6 +34,14 @@ namespace StreamDanmuku_Server.SocketIO
             Instance.Stop();
             RuntimeLog.WriteSystemLog("WebSocketServer", $"Shut down Server...", true);
         }
+        public static void BoardCast(string type, object msg)
+        {
+            foreach (var item in Online.Users)
+            {
+                item.Value.WebSocket.Emit(type, msg);
+            }
+        }
+
         public class MsgHandler : WebSocketBehavior
         {
             protected override void OnMessage(MessageEventArgs e)
@@ -42,8 +50,6 @@ namespace StreamDanmuku_Server.SocketIO
             }
             protected override void OnOpen()
             {
-                Emit("SocketID", ID);
-                Emit("GetInfo", "");
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Connected, id={ID}", true);
             }
             protected override void OnClose(CloseEventArgs e)
@@ -60,7 +66,7 @@ namespace StreamDanmuku_Server.SocketIO
                         if (room != null)
                         {
                             room.Clients.Remove(this);
-                            Online.Users.First(x=>x.Value.Id==client.Id).Value.Status = User.UserStatus.StandBy;
+                            Online.Users.First(x => x.Value.Id == client.Id).Value.Status = User.UserStatus.StandBy;
                             var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
                             if (server != null)
                                 server.WebSocket.Emit("Leave", new { from = client.Id });
@@ -68,7 +74,8 @@ namespace StreamDanmuku_Server.SocketIO
                     }
                     else if (client.Status == User.UserStatus.Streaming)
                     {
-                        MsgHandler.BoardCast(client.Id, "RoomVanish", new { roomID = client.Id });
+                        RoomBoardCast(client.Id, "RoomVanish", new { roomID = client.Id });
+                        BoardCast("RoomRemove", new { roomID = client.Id });
                         Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
                     }
                     Online.StreamerUser.Remove(ID);
@@ -79,7 +86,7 @@ namespace StreamDanmuku_Server.SocketIO
             {
                 Send((new { type, data = new { msg, timestamp = Helper.TimeStamp } }).ToJson());
             }
-            public static void BoardCast(int roomID, string type, object msg)
+            public static void RoomBoardCast(int roomID, string type, object msg)
             {
                 var room = Online.Rooms.Find(x => x.RoomID == roomID);
                 try
@@ -538,7 +545,7 @@ namespace StreamDanmuku_Server.SocketIO
                             user.PassWord = "***";
                             user.WebSocket = socket;
                             socket.Emit(resultName, Helper.SetOK("ok", user));
-                            if (data["streamFlag"] != null && (bool)data["streamFlag"]?.ToObject<bool>())
+                            if (data["streamFlag"] != null && (bool)data["streamFlag"])
                             {
                                 if (Online.Users.Any(x => x.Value.Id == user.Id))
                                 {
@@ -604,39 +611,29 @@ namespace StreamDanmuku_Server.SocketIO
             string OnName = "GetEmailCaptcha";
             try
             {
-                if (Online.Users.ContainsKey(socket.ID))
+                string email = data["email"].ToString();
+                if (Online.Captcha.ContainsKey(email))
                 {
-                    string email = data["email"].ToString();
+                    Online.Captcha.Remove(email);
+                }
+                int captcha = User.GenCaptcha();
+                Online.Captcha.Add(email, captcha);
+                int expiredTimeOut = 0;
+                new Thread(() =>
+                {
+                    while (expiredTimeOut < 1000 * 30)
+                    {
+                        Thread.Sleep(1000);
+                        expiredTimeOut += 1000;
+                    }
                     if (Online.Captcha.ContainsKey(email))
                     {
-                        socket.Emit(OnName, Helper.SetError(403));
-                        RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, duplicate captcha", false);
-                        return;
+                        Online.Captcha.Remove(email);
+                        System.Console.WriteLine($"Remove captcha Email={email}");
                     }
-                    int captcha = User.GenCaptcha();
-                    Online.Captcha.Add(email, captcha);
-                    int expiredTimeOut = 0;
-                    new Thread(() =>
-                    {
-                        while (expiredTimeOut < 1000 * 30)
-                        {
-                            Thread.Sleep(1000);
-                            expiredTimeOut += 1000;
-                        }
-                        if (Online.Captcha.ContainsKey(email))
-                        {
-                            Online.Captcha.Remove(email);
-                            System.Console.WriteLine($"Remove captcha Email={email}");
-                        }
-                    }).Start();
-                    RuntimeLog.WriteSystemLog(OnName, $"{OnName} Success, captcha={captcha}, Email={email}", true);
-                    socket.Emit(OnName, Helper.SetOK());
-                }
-                else
-                {
-                    socket.Emit(OnName, Helper.SetError(307));
-                    RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, user is null", false);
-                }
+                }).Start();
+                RuntimeLog.WriteSystemLog(OnName, $"{OnName} Success, captcha={captcha}, Email={email}", true);
+                socket.Emit(OnName, Helper.SetOK());
             }
             catch (Exception ex)
             {
@@ -649,28 +646,19 @@ namespace StreamDanmuku_Server.SocketIO
             string OnName = "VerifyEmailCaptcha";
             try
             {
-                if (Online.Users.ContainsKey(socket.ID))
+                string email = data["email"].ToString();
+                if (Online.Captcha.ContainsKey(email))
                 {
-                    string email = data["email"].ToString();
-                    if (Online.Captcha.ContainsKey(email))
+                    if (Online.Captcha[email] == ((int)data["captcha"]))
                     {
-                        if (Online.Captcha[email] == ((int)data["captcha"]))
-                        {
-                            Online.Captcha.Remove(email);
-                            RuntimeLog.WriteSystemLog(OnName, $"{OnName} Success, Email={email}", true);
-                            socket.Emit(OnName, Helper.SetOK());
-
-                        }
-                        else
-                        {
-                            socket.Emit(OnName, Helper.SetError(402));
-                            RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, captcha is expired or invalid", false);
-                        }
+                        Online.Captcha.Remove(email);
+                        RuntimeLog.WriteSystemLog(OnName, $"{OnName} Success, Email={email}", true);
+                        socket.Emit(OnName, Helper.SetOK());
                     }
                     else
                     {
-                        socket.Emit(OnName, Helper.SetError(404));
-                        RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, user not generate captcha first", false);
+                        socket.Emit(OnName, Helper.SetError(402));
+                        RuntimeLog.WriteSystemLog(OnName, $"{OnName} error, captcha is expired or invalid", false);
                     }
                 }
                 else
@@ -747,11 +735,11 @@ namespace StreamDanmuku_Server.SocketIO
                 }
                 Room room = new()
                 {
-                    IsPublic = ((bool)data["isPublic"]),
-                    Max = data["max"].ToObject<int>(),
-                    Title = data["title"].ToObject<string>(),
+                    IsPublic = (bool)data["isPublic"],
+                    Max = (int)data["max"],
+                    Title = data["title"].ToString(),
                     CreatorName = user.NickName,
-                    Password = data["password"].ToObject<string>(),
+                    Password = data["password"].ToString(),
                     RoomID = user.Id,
                     CreateTime = DateTime.Now,
                 };
@@ -765,6 +753,7 @@ namespace StreamDanmuku_Server.SocketIO
                 RuntimeLog.WriteSystemLog(onName, $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}", true);
                 Online.Rooms.Add(room);
                 socket.Emit(onName, Helper.SetOK());
+                BoardCast("RoomAdd", room.WithoutSecret());
             }
             catch (Exception ex)
             {
