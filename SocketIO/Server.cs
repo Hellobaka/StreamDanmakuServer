@@ -54,12 +54,12 @@ namespace StreamDanmuku_Server.SocketIO
             }
             protected override void OnClose(CloseEventArgs e)
             {
-                //TODO: 房主掉线房间关闭
                 if (Online.Users.ContainsKey(ID))
                     Online.Users.Remove(ID);
                 if (Online.StreamerUser.ContainsKey(ID))
                 {
                     var client = Online.StreamerUser[ID];
+                    RuntimeLog.WriteSystemLog("Room Removed", $"clientStatus={client.Status}", true);
                     if (client.Status == User.UserStatus.Client)
                     {
                         var room = Online.Rooms.FirstOrDefault(x => x.RoomID == client.StreamRoom);
@@ -74,9 +74,11 @@ namespace StreamDanmuku_Server.SocketIO
                     }
                     else if (client.Status == User.UserStatus.Streaming)
                     {
+                        RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={client.Id}", true);
                         RoomBoardCast(client.Id, "RoomVanish", new { roomID = client.Id });
                         BoardCast("RoomRemove", new { roomID = client.Id });
                         Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
+                        client.Status = User.UserStatus.StandBy;
                     }
                     Online.StreamerUser.Remove(ID);
                 }

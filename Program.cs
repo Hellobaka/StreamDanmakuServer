@@ -1,4 +1,5 @@
-﻿using System;
+﻿using StreamDanmuku_Server.Data;
+using System;
 
 namespace StreamDanmuku_Server
 {
@@ -9,7 +10,15 @@ namespace StreamDanmuku_Server
             Helper.StartUp();
             while (true)
             {
-                Console.ReadLine();
+                string cmd = Console.ReadLine();
+                switch (cmd)
+                {
+                    case "clearroom":
+                        Online.Rooms.Clear();
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }

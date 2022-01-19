@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove=".gitignore" />
+    <None Remove="Config.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="JWT" Version="8.6.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="SqlSugarCore" Version="5.0.4.2" />
