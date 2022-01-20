@@ -47,5 +47,10 @@ namespace StreamDanmuku_Server
                      .MustVerifySignature()
                      .Decode(jwt); 
         }
+        /// <summary>
+        /// 生成验证码
+        /// </summary>
+        /// <returns>6位随机数字, 不保证不重复</returns>
+        public static int GenCaptcha() => new Random().Next(100000, 999999);
     }
 }
