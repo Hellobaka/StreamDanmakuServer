@@ -2,7 +2,7 @@
 
 namespace StreamDanmuku_Server
 {
-    internal class ErrorCode
+    internal static class ErrorCode
     {
         public static Dictionary<int, string> Content = new()
         {
