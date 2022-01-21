@@ -4,7 +4,6 @@ using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SqlSugar;
-using StreamDanmuku_Server.SocketIO;
 using static StreamDanmuku_Server.SocketIO.Server;
 
 
@@ -119,25 +118,249 @@ namespace StreamDanmuku_Server.Data
         }
         #endregion
 
-        public static FunctionResult Login(string account, string password)
+        #region 工具函数
+
+        /// <summary>
+        /// 验证邮箱格式是否正确
+        /// </summary>
+        /// <param name="email">待验证邮箱</param>
+        /// <param name="formatError">是否格式错误</param>
+        /// <param name="duplicate">是否重复</param>
+        /// <returns>是否通过</returns>
+        public static bool VerifyEmail(string email, out bool formatError, out bool duplicate)
         {
-            password = Helper.MD5Encrypt(password);
-            var db = SQLHelper.GetInstance();
-            var user = db.Queryable<User>().Where(x => (x.Email == account || x.NickName == account) && x.PassWord == password).First();
-            if (user == null)
-                return Helper.SetError(303);
-            return Helper.SetOK("ok", user);
+            formatError = false;
+            duplicate = false;
+            email = email.Trim();
+            if (Regex.IsMatch(email, "^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(.[a-zA-Z0-9_-]+)+$") is false)
+            {
+                formatError = true;
+                return false;
+            }
+            duplicate = SQLHelper.GetInstance().Queryable<User>().Any(x => x.Email == email);
+            return !duplicate;
         }
-        public static FunctionResult Register(User user) => Register(user.NickName, user.PassWord, user.Email);
-        public static FunctionResult Register(string nickname, string password, string email)
+        /// <summary>
+        /// 验证用户名是否符合格式
+        /// </summary>
+        /// <param name="nickname">待验证格式</param>
+        /// <param name="formatError">是否格式错误</param>
+        /// <returns>是否通过</returns>
+        public static bool VerifyNickName(string nickname, out bool formatError, out bool duplicate)
+        {            
+            formatError = false;
+            duplicate = false;
+            nickname = nickname.Trim();
+            if (nickname.Length < 3)
+            {
+                formatError = true;
+                return false;
+            }
+            duplicate = SQLHelper.GetInstance().Queryable<User>().Any(x => x.NickName == nickname);
+            return !duplicate;
+        }
+        #endregion
+
+        #region WebSocket逻辑
+        /// <summary>
+        /// 生成邮箱验证码
+        /// </summary>
+        /// <param name="socket">未登录 Websocket 连接</param>
+        /// <param name="data">email: 目标邮箱</param>
+        public static void GetEmailCaptcha(MsgHandler socket, JToken data, string onName)
         {
+            string email = data["email"].ToString();
+            if (Online.Captcha.ContainsKey(email))// 之前申请过，覆盖旧信息
+            {
+                if(Online.Captcha[email].ExpiredTimeCount > Captcha.RefreshTime)
+                    Online.Captcha[email].RemoveCaptcha();
+                else
+                {
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, captcha refresh in CD", false);
+                    socket.Emit(onName, Helper.SetError(403));
+                    return;
+                }
+            }
+            Captcha captcha = new(){Email = email, EmailCaptcha = Helper.GenCaptcha(6, false)};
+            Online.Captcha.Add(email, captcha);
+            RuntimeLog.WriteSystemLog(onName, $"{onName} Success, captcha={captcha}, Email={email}", true);
+            socket.Emit(onName, Helper.SetOK());
+        }
+        /// <summary>
+        /// 验证邮箱验证码
+        /// </summary>
+        /// <param name="socket">未登录 WebSocket 连接</param>
+        /// <param name="data">email: 目标邮箱; captcha: 验证码</param>
+        public static void VerifyEmailCaptcha(MsgHandler socket, JToken data, string onName)
+        {
+            string email = data["email"].ToString();
+            if (Online.Captcha.ContainsKey(email))
+            {
+                if (Online.Captcha[email].EmailCaptcha == data["captcha"].ToString())
+                {
+                    Online.Captcha.Remove(email);
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} Success, Email={email}", true);
+                    socket.Emit(onName, Helper.SetOK());
+                }
+                else
+                {
+                    socket.Emit(onName, Helper.SetError(402));
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, captcha is expired or invalid", false);
+                }
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(307));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+        /// <summary>
+        /// 修改用户昵称
+        /// </summary>
+        /// <param name="socket">普通在线 WebSocket 连接</param>
+        /// <param name="data"></param>
+        public static void ChangeNickName(MsgHandler socket, JToken data, string onName, User user)
+        {
+            string newName = data["nickName"].ToString();
+            if (VerifyNickName(newName, out bool formatError, out bool duplicate))
+            {
+                user.NickName = newName;
+                UpdateNickNameByID(user.Id, newName);
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}, nickname={user.NickName}", true);
+            }
+            else if (formatError)
+            {
+                socket.Emit(onName, Helper.SetError(309));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, formatError, id={user.Id}, nickname={user.NickName}", false);
+            }
+            else if (duplicate)
+            {
+                socket.Emit(onName, Helper.SetError(302));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, duplicate nickname, id={user.Id}, nickname={user.NickName}", false);
+            }
+        }
+        /// <summary>
+        /// 修改密码
+        /// </summary>
+        /// <param name="socket">普通在线 WebSocket 连接</param>
+        /// <param name="data">oldPassword: 旧密码; newPassword: 新密码</param>
+        public static void ChangePassword(MsgHandler socket, JToken data, string onName, User user)
+        {
+            string oldPassword = data["oldPassword"].ToString().ToUpper();
+            string newPassword = data["newPassword"].ToString().ToUpper();
             var db = SQLHelper.GetInstance();
-            if (VerifyEmail(email, out bool formatError))
-                return Helper.SetError(formatError ? 305 : 301);
-            if (VerifyNickName(nickname, out formatError))
-                return Helper.SetError(formatError ? 306 : 302);
+            if (user.PassWord.ToUpper() == oldPassword)
+            {
+                user.LastChange = DateTime.Now;
+                user.PassWord = newPassword;
+                user.UpdateUser();
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id} newPwd={data["newPassword"]}", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(310));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, oldPassword not equal to newPassword", false);
+            }
+        }
+        /// <summary>
+        /// 修改邮箱
+        /// </summary>
+        /// <param name="socket">普通在线 WebSocket 连接</param>
+        /// <param name="data">newEmail: 需要修改的新邮箱; captcha: 旧邮箱的验证码</param>
+        /// <param name="onName"></param>
+        /// <param name="user"></param>
+        public static void ChangeEmail(MsgHandler socket, JToken data, string onName, User user)
+        {
+            // TODO: 邮箱验证码
+            string email = data["newEmail"].ToString();
+            if (VerifyEmail(email, out bool formatError, out bool duplicate))
+            {
+                UpdateEmailByID(user.Id, email);
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}, oldEmail={user.Email}, newEmail={email}", true);
+                user.Email = data["newEmail"].ToString();
+            }
+            else if (formatError)
+            {
+                socket.Emit(onName, Helper.SetError(305));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} formatError", false);
+            }
+            else if (duplicate)
+            {
+                socket.Emit(onName, Helper.SetError(301));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} duplicate email", false);
+            }
+        }
+        
+        public static void Login(MsgHandler socket, JToken data, string onName)
+        {            
+            // TODO: 登录日志
+            RuntimeLog.WriteSystemLog("Login", $"Try Login. Account: {data["account"]}, Pass: {data["password"]}",
+                true);
+            string password = Helper.MD5Encrypt(data["password"].ToString());
+            var db = SQLHelper.GetInstance();
+            var user = db.Queryable<User>().First(x =>
+                (x.Email == data["account"].ToString() || x.NickName == data["account"].ToString()) &&
+                x.PassWord == password);
+            if (user == null)
+            {
+                socket.Emit(onName, Helper.SetError(303));
+                RuntimeLog.WriteSystemLog(onName, $"Login Fail. Account: {data["account"]}, Pass: {data["password"]}",
+                    false);
+            }
+            else
+            {
+                user.WebSocket = socket;
+                if (Online.Users.ContainsKey(socket.ID))
+                    Online.Users[socket.ID] = user;
+                else
+                    Online.Users.Add(socket.ID, user);
+                socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
+                RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
+            }
+        }
+
+        public static void Register(MsgHandler socket, JToken data, string onName)
+        {
+            string email = data["email"].ToString();
+            string nickname = data["nickname"].ToString();
+            string password = data["password"].ToString();
+            
+            var db = SQLHelper.GetInstance();
+            VerifyEmail(email, out bool formatError, out bool duplicate);
+            if (formatError)
+            {
+                socket.Emit(onName, Helper.SetError(305));
+                RuntimeLog.WriteSystemLog(onName, $"email format wrong", false);
+                return;
+            }
+            else if(duplicate)
+            {
+                socket.Emit(onName, Helper.SetError(301));
+                RuntimeLog.WriteSystemLog(onName, $"duplicate email", false);
+                return;
+            }
+
+            VerifyNickName(nickname, out formatError, out duplicate);
+            if (formatError)
+            {
+                socket.Emit(onName, Helper.SetError(306));
+                RuntimeLog.WriteSystemLog(onName, $"nickname format wrong", false);
+                return;
+            }
+            else if(duplicate)
+            {
+                socket.Emit(onName, Helper.SetError(302));
+                RuntimeLog.WriteSystemLog(onName, $"nickname email", false);
+                return;
+            }
+            
             if (password.Length != 32)
-                return Helper.SetError(304);
+            {
+                socket.Emit(onName, Helper.SetError(304));
+                RuntimeLog.WriteSystemLog(onName, $"password format wrong", false);
+            }
             User u = new()
             {
                 Email = email,
@@ -147,272 +370,15 @@ namespace StreamDanmuku_Server.Data
                 LastChange = DateTime.Now,
             };
             db.Insertable(u).ExecuteCommand();
-            return Helper.SetOK();
-        }
-        public static FunctionResult ChangePassword(int id, string oldPassword, string newPassword)
-        {
-            oldPassword = oldPassword.ToUpper();
-            newPassword = newPassword.ToUpper();
-            var db = SQLHelper.GetInstance();
-            var user = db.Queryable<User>().First(x => x.Id == id);
-            if (user == null)
-            {
-                return Helper.SetError(307);
-            }
-            else
-            {
-                if (user.PassWord.ToUpper() == oldPassword)
-                {
-                    user.LastChange = DateTime.Now;
-                    user.PassWord = newPassword;
-                    user.UpdateUser();
-                    return Helper.SetOK();
-                }
-                else
-                {
-                    return Helper.SetError(310);
-                }
-            }
-        }
-        public static bool VerifyEmail(string Email, out bool formatError)
-        {
-            Email = Email.Trim();
-            if (Regex.IsMatch(Email, "^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(.[a-zA-Z0-9_-]+)+$") is false) { formatError = true; return false; }
-            formatError = false;
-            return SQLHelper.GetInstance().Queryable<User>().Any(x => x.Email == Email);
-        }
-        public static bool VerifyNickName(string Nickname, out bool formatError)
-        {
-            Nickname = Nickname.Trim();
-            if (Nickname.Length < 3) { formatError = true; return false; }
-            formatError = false;
-            return SQLHelper.GetInstance().Queryable<User>().Any(x => x.NickName == Nickname);
-        }
-
-        #region WebSocket逻辑
-        /// <summary>
-        /// 生成邮箱验证码
-        /// </summary>
-        /// <param name="socket">未登录 Websocket 连接</param>
-        /// <param name="data">email: 目标邮箱</param>
-        public static void GetEmailCaptcha(MsgHandler socket, JToken data)
-        {
-            const string onName = "GetEmailCaptcha";
-            try
-            {
-                // TODO: 防范重启程序刷新时间
-                string email = data["email"].ToString();
-                if (Online.Captcha.ContainsKey(email))// 之前申请过，覆盖旧信息
-                {
-                    Online.Captcha.Remove(email);
-                }
-                int captcha = Helper.GenCaptcha();
-                Online.Captcha.Add(email, captcha);
-                int expiredTimeOut = 0;
-                // TODO: 覆盖邮箱时如何停止这个线程
-                new Thread(() =>
-                {
-                    while (expiredTimeOut < 1000 * 30)
-                    {
-                        Thread.Sleep(1000);
-                        expiredTimeOut += 1000;
-                    }
-                    if (Online.Captcha.ContainsKey(email))
-                    {
-                        Online.Captcha.Remove(email);
-                        System.Console.WriteLine($"Remove captcha Email={email}");
-                    }
-                }).Start();
-                RuntimeLog.WriteSystemLog(onName, $"{onName} Success, captcha={captcha}, Email={email}", true);
-                socket.Emit(onName, Helper.SetOK());
-            }
-            catch (Exception ex)
-            {
-                socket.Emit(onName, Helper.SetError(-100));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
-            }
-        }
-        /// <summary>
-        /// 验证邮箱验证码
-        /// </summary>
-        /// <param name="socket">未登录 WebSocket 连接</param>
-        /// <param name="data">email: 目标邮箱</param>
-        public static void VerifyEmailCaptcha(MsgHandler socket, JToken data)
-        {
-            const string onName = "VerifyEmailCaptcha";
-            try
-            {
-                string email = data["email"].ToString();
-                if (Online.Captcha.ContainsKey(email))
-                {
-                    if (Online.Captcha[email] == (int)data["captcha"])// 类型验证？
-                    {
-                        Online.Captcha.Remove(email);
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} Success, Email={email}", true);
-                        socket.Emit(onName, Helper.SetOK());
-                    }
-                    else
-                    {
-                        socket.Emit(onName, Helper.SetError(402));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, captcha is expired or invalid", false);
-                    }
-                }
-                else
-                {
-                    socket.Emit(onName, Helper.SetError(307));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                }
-            }
-            catch (Exception ex)
-            {
-                socket.Emit(onName, Helper.SetError(-100));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
-            }
-        }
-        /// <summary>
-        /// 修改用户昵称
-        /// </summary>
-        /// <param name="socket">普通在线 WebSocket 连接</param>
-        /// <param name="data"></param>
-        public static void ChangeNickName(MsgHandler socket, JToken data)
-        {
-            const string onName = "ChangeNickName";
-            string newName = data["nickName"].ToString();
-            try
-            {
-                var user = Online.Users[socket.ID];
-                if (user != null)
-                {
-                    if (!VerifyNickName(newName, out bool formatError))
-                    {
-                        user.NickName = newName;
-                        UpdateNickNameByID(user.Id, newName);
-                        socket.Emit(onName, Helper.SetOK());
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}, nickname={user.NickName}", true);
-                    }
-                    else
-                    {
-                        if (formatError)
-                        {
-                            socket.Emit(onName, Helper.SetError(309));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, formatError, id={user.Id}, nickname={user.NickName}", false);
-                        }
-                        else
-                        {
-                            socket.Emit(onName, Helper.SetError(302));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, duplicate nickname, id={user.Id}, nickname={user.NickName}", false);
-                        }
-                    }
-                }
-                else
-                {
-                    socket.Emit(onName, Helper.SetError(-100));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is null", false);
-                }
-            }
-            catch (Exception ex)
-            {
-                socket.Emit(onName, Helper.SetError(-100));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
-            }
-        }
-        /// <summary>
-        /// 修改密码
-        /// </summary>
-        /// <param name="socket">普通在线 WebSocket 连接</param>
-        /// <param name="data">oldPassword: 旧密码; newPassword: 新密码</param>
-        public static void ChangePassword(MsgHandler socket, JToken data)
-        {
-            const string onName = "ChangePassword";
-            try
-            {
-                if (Online.Users.ContainsKey(socket.ID))
-                {
-                    var user = Online.Users[socket.ID];
-                    if (user == null)
-                    {
-                        socket.Emit(onName, Helper.SetError(307));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                    }
-                    else
-                    {
-                        var r = User.ChangePassword(user.Id, data["oldPassword"].ToString(), data["newPassword"].ToString());
-                        socket.Emit(onName, r);
-                        if (r.isSuccess)
-                        {
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id} newPwd={data["newPassword"]}", true);
-                        }
-                        else
-                        {
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg={r.msg}", false);
-                        }
-                    }
-                }
-                else
-                {
-                    socket.Emit(onName, Helper.SetError(307));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                }
-
-            }
-            catch (Exception ex)
-            {
-                socket.Emit("Register", Helper.SetError(401));
-                RuntimeLog.WriteSystemLog("Register", $"Register error, msg: {ex.Message}", false);
-            }
-        }
-
-        public static void ChangeEmail(MsgHandler socket, JToken data)
-        {
-            const string onName = "ChangeEmail";
-            try
-            {
-                if (Online.Users.ContainsKey(socket.ID))
-                {
-                    var user = Online.Users[socket.ID];
-                    if (!string.IsNullOrWhiteSpace(data["newEmail"]?.ToString()))
-                    {
-                        string email = data["newEmail"].ToString();
-                        if (User.VerifyEmail(email, out bool formatError) is false)
-                        {
-                            User.UpdateEmailByID(user.Id, email);
-                            socket.Emit(onName, Helper.SetOK());
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}, oldEmail={user.Email}, newEmail={email}", true);
-                            user.Email = data["newEmail"].ToString();
-                        }
-                        else if (formatError)
-                        {
-                            socket.Emit(onName, Helper.SetError(305));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} formatError", false);
-                        }
-                        else
-                        {
-                            socket.Emit(onName, Helper.SetError(301));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} duplicate email", false);
-                        }
-                    }
-                    else
-                    {
-                        socket.Emit(onName, Helper.SetError(401));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                    }
-                }
-                else
-                {
-                    socket.Emit(onName, Helper.SetError(307));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                }
-            }
-            catch (Exception ex)
-            {
-                socket.Emit("Register", Helper.SetError(-100));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
-            }
+            socket.Emit(onName, Helper.SetOK());
         }
 
         #endregion
 
         public object Clone() => MemberwiseClone();
+        /// <summary>
+        /// 去除机密字段
+        /// </summary>
         public object WithoutSecret()
         {
             var c = (User)Clone();

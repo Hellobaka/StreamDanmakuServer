@@ -95,7 +95,7 @@ namespace StreamDanmuku_Server.SocketIO
                 Send((new {type, data = new {msg, timestamp = Helper.TimeStamp}}).ToJson());
             }
 
-            public static void RoomBoardCast(int roomID, string type, object msg)
+            private static void RoomBoardCast(int roomID, string type, object msg)
             {
                 var room = Online.Rooms.Find(x => x.RoomID == roomID);
                 try
@@ -103,13 +103,8 @@ namespace StreamDanmuku_Server.SocketIO
                     if (room != null)
                     {
                         room.Clients.ForEach(x => x.Emit(type, msg));
-                        int boardCastCount = room.ClientCount;
                         var server = Online.StreamerUser.First(x => x.Value.Id == roomID).Value;
-                        if (server != null)
-                        {
-                            server.WebSocket.Emit(type, msg);
-                            boardCastCount++;
-                        }
+                        server?.WebSocket.Emit(type, msg);
                     }
                     else
                     {
@@ -123,75 +118,76 @@ namespace StreamDanmuku_Server.SocketIO
             }
         }
 
-        public static void HandleMessage(MsgHandler socket, string Data)
+        private static void HandleMessage(MsgHandler socket, string jsonText)
         {
             try
             {
-                JObject json = JObject.Parse(Data);
-                switch (json["type"].ToString())
+                JObject json = JObject.Parse(jsonText);
+                JToken data = json["data"];
+                switch (json["type"]!.ToString())
                 {
                     case "GetInfo":
                         GetInfo(socket, json["data"]);
                         break;
                     case "Login":
-                        Login(socket, json["data"]);
+                        Auth_Non(socket, data, User.Login);
                         break;
                     case "Register":
-                        Register(socket, json["data"]);
+                        Auth_Non(socket, data, User.Register);
                         break;
                     case "HeartBeat":
                         socket.Emit("HeartBeat", "##HEARTBEAT##");
                         break;
                     case "CreateRoom":
-                        Room.CreateRoom(socket, json["data"]);
+                        Auth_Online(socket, data, Room.CreateRoom);
                         break;
                     case "ChangeNickName":
-                        User.ChangeNickName(socket, json["data"]);
+                        Auth_Online(socket, data, User.ChangeNickName);
                         break;
                     case "ChangeEmail":
-                        User.ChangeEmail(socket, json["data"]);
+                        Auth_Online(socket, data, User.ChangeEmail);
                         break;
                     case "ChangePassword":
-                        User.ChangePassword(socket, json["data"]);
+                        Auth_Online(socket, data, User.ChangePassword);
                         break;
                     case "GetEmailCaptcha":
-                        User.GetEmailCaptcha(socket, json["data"]);
+                        Auth_Non(socket, data, User.GetEmailCaptcha);
                         break;
                     case "VerifyEmailCaptcha":
-                        User.VerifyEmailCaptcha(socket, json["data"]);
+                        Auth_Non(socket, data, User.VerifyEmailCaptcha);
                         break;
                     case "RoomEntered":
-                        Room.RoomEntered(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.RoomEntered);
                         break;
                     case "EnterRoom":
-                        Room.EnterRoom(socket, json["data"]);
+                        Auth_Online(socket, data, Room.EnterRoom);
                         break;
                     case "RoomList":
-                        Room.RoomList(socket, json["data"]);
+                        Auth_Online(socket, data, Room.RoomList);
                         break;
                     case "VerifyRoomPassword":
-                        Room.VerifyRoomPassword(socket, json["data"]);
+                        Auth_Online(socket, data, Room.VerifyRoomPassword);
                         break;
                     case "Offer":
-                        Room.OnOffer(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.OnOffer);
                         break;
                     case "Answer":
-                        Room.OnAnswer(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.OnAnswer);
                         break;
                     case "Candidate":
-                        Room.OnCandidate(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.OnCandidate);
                         break;
                     case "Leave":
-                        Room.OnLeave(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.OnLeave);
                         break;
                     case "OnlineUserCount":
                         socket.Emit("OnlineUserCount", new {count = Online.Users.Count});
                         break;
                     case "JoinRoom":
-                        Room.JoinRoom(socket, json["data"]);
+                        Auth_Online(socket, data, Room.JoinRoom);
                         break;
                     case "RoomInfo":
-                        Room.RoomInfo(socket, json["data"]);
+                        Auth_Stream(socket, data, Room.RoomInfo);
                         break;
                     default:
                         break;
@@ -204,20 +200,78 @@ namespace StreamDanmuku_Server.SocketIO
             }
         }
 
+        private static void Auth_Stream(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
+        {
+            string onName = func.Method.Name;
+            try
+            {
+                if (Online.StreamerUser.ContainsKey(socket.ID))
+                {
+                    var stream = Online.StreamerUser[socket.ID];
+                    func.Invoke(socket, data, onName, stream);
+                }
+                else
+                {
+                    socket.Emit(onName, Helper.SetError(307));
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, stream is null", false);
+                }
+            }
+            catch (Exception e)
+            {
+                socket.Emit(onName, Helper.SetError(-100));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
+            }
+        }
+        private static void Auth_Online(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
+        {            
+            string onName = func.Method.Name;
+            try
+            {
+                if (Online.Users.ContainsKey(socket.ID))
+                {
+                    var user = Online.Users[socket.ID];
+                    func.Invoke(socket, data, onName, user);
+                }
+                else
+                {
+                    socket.Emit(onName, Helper.SetError(307));
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is null", false);
+                }
+            }
+            catch (Exception e)
+            {
+                socket.Emit(onName, Helper.SetError(-100));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
+            }
+        }
+
+        private static void Auth_Non(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string> func)
+        {
+            string onName = func.Method.Name;
+            try
+            {
+                func.Invoke(socket, data, onName);
+            }
+            catch (Exception e)
+            {
+                socket.Emit(onName, Helper.SetError(-100));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
+            }
+        }
         private static void GetInfo(MsgHandler socket, JToken data)
         {
-            string onName = "GetInfo";
-            string resultName = "GetInfoResult";
+            const string onName = "GetInfo";
+            const string resultName = "GetInfoResult";
             RuntimeLog.WriteSystemLog(onName, $"Receive {onName} Response, {data.ToString(Formatting.None)}", true);
             try
             {
-                if (((bool) data["loginFlag"]))
+                if ((bool) data["loginFlag"])
                 {
                     try
                     {
                         JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
                         RuntimeLog.WriteSystemLog(onName, $"{onName}, {data["jwt"]}", true);
-                        User user = User.GetUserByID(((int) json["id"]));
+                        User user = User.GetUserByID((int) json["id"]);
                         if (user == null)
                         {
                             socket.Emit(resultName, Helper.SetError(503));
@@ -225,7 +279,7 @@ namespace StreamDanmuku_Server.SocketIO
                         }
                         else
                         {
-                            if (user.LastChange != ((DateTime) json["statusChange"]))
+                            if (user.LastChange != (DateTime) json["statusChange"])
                             {
                                 socket.Emit(resultName, Helper.SetError(501));
                                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, lastChange not match", false);
@@ -239,7 +293,7 @@ namespace StreamDanmuku_Server.SocketIO
                                 {
                                     //user.Status = Online.Users.First(x => x.Value.Id == user.Id).Value.Status;
                                     user.Status = User.UserStatus.Streaming;
-                                    if (!Online.StreamerUser.Any(x => x.Value.Id == user.Id))
+                                    if (Online.StreamerUser.All(x => x.Value.Id != user.Id))
                                         Online.StreamerUser.Add(socket.ID, user);
                                 }
                                 else
@@ -286,52 +340,6 @@ namespace StreamDanmuku_Server.SocketIO
             finally
             {
                 BoardCast("OnlineUserChange", new {count = Online.Users.Count});
-            }
-        }
-
-        private static void Login(MsgHandler socket, JToken data)
-        {
-            try
-            {
-                var res = User.Login(data["account"].ToString(), data["password"].ToString());
-                RuntimeLog.WriteSystemLog("Login", $"Try Login. Account: {data["account"]}, Pass: {data["password"]}",
-                    true);
-                if (res.code == 200)
-                {
-                    User user = res.data as User;
-                    user.PassWord = "***";
-                    user.WebSocket = socket;
-                    RuntimeLog.WriteUserLog(user.Email, "Login", "Login Success.", true);
-                    if (Online.Users.ContainsKey(socket.ID))
-                        Online.Users[socket.ID] = user;
-                    else
-                        Online.Users.Add(socket.ID, user);
-                    socket.Emit("Login", Helper.SetOK("ok", Helper.GetJWT(user)));
-                    return;
-                }
-
-                socket.Emit("Login", Helper.SetError(303));
-                RuntimeLog.WriteSystemLog("Login", $"Login Fail. Account: {data["account"]}, Pass: {data["password"]}",
-                    false);
-            }
-            catch (Exception ex)
-            {
-                socket.Emit("Login", Helper.SetError(401));
-                RuntimeLog.WriteSystemLog("Login", $"Login error, msg: {ex.Message}", false);
-            }
-        }
-
-        private static void Register(MsgHandler socket, JToken data)
-        {
-            try
-            {
-                var user = JsonConvert.DeserializeObject<User>(data.ToString());
-                socket.Emit("Register", User.Register(user));
-            }
-            catch (Exception ex)
-            {
-                socket.Emit("Register", Helper.SetError(401));
-                RuntimeLog.WriteSystemLog("Register", $"Register error, msg: {ex.Message}", false);
             }
         }
     }
