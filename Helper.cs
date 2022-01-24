@@ -40,14 +40,18 @@ namespace StreamDanmuku_Server
         /// 对文件进行MD5处理，并返回32位大写字符串
         /// </summary>
         /// <param name="msg">待处理文本</param>
-        public static string MD5Encrypt(string msg) =>
-            BitConverter.ToString(new MD5CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(msg + SALT)))
+        public static string MD5Encrypt(string msg, bool salt = true) =>
+            BitConverter.ToString(new MD5CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(salt ? msg + SALT : msg)))
                 .Replace("-", "");
 
         /// <summary>
         /// 毫秒级时间戳
         /// </summary>
-        public static long TimeStamp => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+        public static long TimeStampms => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+        /// <summary>
+        /// 秒级时间戳
+        /// </summary>
+        public static long TimeStamp => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
 
         /// <summary>
         /// 将对象转换为JWT字符串
