@@ -11,6 +11,13 @@ namespace StreamDanmuku_Server.Data
     [JsonObject(MemberSerialization.OptOut)]
     public class Room : ICloneable
     {
+        public enum StreamMode
+        {
+            TRTC,
+            QuickLive,
+            WebRTC,
+            AudioChat
+        }
         /// <summary>
         /// 直播间标题
         /// </summary>
@@ -53,12 +60,25 @@ namespace StreamDanmuku_Server.Data
         /// 房间内观众对应的WebSocket(或许应当改成User对象
         /// </summary>
         [JsonIgnore]
-        public List<Server.MsgHandler> Clients { get; set; } = new();
+        public List<MsgHandler> Clients { get; set; } = new();
         /// <summary>
         /// 房间人数
         /// </summary>
         public int ClientCount => Clients.Count;
+        /// <summary>
+        /// 拉流地址
+        /// </summary>
+        public string StreamPullURL { get; set; }
+        /// <summary>
+        /// 推流地址
+        /// </summary>
+        public string StreamPushURL { get; set; }
 
+        /// <summary>
+        /// 房间是否可加入
+        /// </summary>
+        public bool Enterable { get; set; } = false;
+        public StreamMode Mode { get; set; } = StreamMode.QuickLive;
         public object Clone() => MemberwiseClone();
         /// <summary>
         /// 获取脱敏数据
@@ -67,7 +87,7 @@ namespace StreamDanmuku_Server.Data
         public object WithoutSecret()
         {
             var c = (Room)Clone();
-            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode };
+            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode, c.Mode };
         }
         #region WebSocket逻辑
 
@@ -82,8 +102,8 @@ namespace StreamDanmuku_Server.Data
         {
             var room = Online.Rooms.Find(x => x.RoomID == user.Id);
             if (room != null)
-            {
-                socket.Emit(onName, Helper.SetOK("ok", room.WithoutSecret()));
+            {   
+                socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} success, RoomID={room.RoomID}", true);
             }
             else
@@ -159,7 +179,7 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">未读取内容</param>
         public static void RoomList(MsgHandler socket, JToken data, string onName, User user)
         {
-            socket.Emit(onName, Helper.SetOK("ok", Online.Rooms.Where(x => x.IsPublic).ToList()));
+            socket.Emit(onName, Helper.SetOK("ok", Online.Rooms.Where(x => x.IsPublic && x.Enterable).ToList()));
             RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
         }
         /// <summary>
@@ -172,6 +192,12 @@ namespace StreamDanmuku_Server.Data
             var room = Online.Rooms.Find(x => x.RoomID == (int)data["id"]);
             if (room != null)
             {
+                if (room.Enterable is false)
+                {
+                    socket.Emit(onName, Helper.SetError(313));
+                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, enterable is false", false);
+                    return;
+                }
                 if (room.PasswordNeeded)
                 {
                     if (room.Password == data["password"].ToString().Trim())
@@ -302,7 +328,7 @@ namespace StreamDanmuku_Server.Data
             room.Clients.Add(socket);
             // Online.StreamerUser[socket.ID].StreamRoom = room.UserID;
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
-            socket.Emit(onName, Helper.SetOK());
+            socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret(),}));
         }
         /// <summary>
         /// 创建房间
@@ -326,7 +352,8 @@ namespace StreamDanmuku_Server.Data
                 Password = data["password"].ToString(),
                 RoomID = user.Id,
                 CreateTime = DateTime.Now,
-                InviteCode = Helper.GenCaptcha(6, true)
+                InviteCode = Helper.GenCaptcha(6, true),
+                Mode = (StreamMode)(int)data["mode"]
             };
             if (room.Max is < 2 or > 51)// 高级
             {
@@ -338,8 +365,59 @@ namespace StreamDanmuku_Server.Data
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}", true);
             Online.Rooms.Add(room);
             socket.Emit(onName, Helper.SetOK());
-            BoardCast("RoomAdd", room.WithoutSecret());
+        }
+
+        public static void GetPushUrl(MsgHandler socket, JToken data, string onName, User user)
+        {
+            var room = Online.Rooms.First(x => x.RoomID == user.Id);
+            string pushUrl = room.GenLivePushURL();
+            socket.Emit(onName, Helper.SetOK("ok", new {server="rtmp://livepush.hellobaka.xyz/StreamDanmuku/",key=pushUrl}));
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPushUrl: {pushUrl}",true);
+        }
+        public static void GetPullUrl(MsgHandler socket, JToken data, string onName, User user)
+        {            
+            var room = Online.Rooms.First(x => x.RoomID == user.StreamRoom);
+            string pullUrl = room.GenLivePullURL();
+            socket.Emit(onName, Helper.SetOK("ok", new {server="webrtc://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}",true);
+        }
+        public static void SwitchStream(MsgHandler socket, JToken data, string onName, User user)
+        {
+            var room = Online.Rooms.First(x => x.RoomID == user.Id);
+            room.Enterable = (bool) data["flag"];
+            if (room.Enterable)
+            {
+                BoardCast("RoomAdd", room.WithoutSecret());
+            }
+            else
+            {
+                room.RoomBoardCast("RoomClose", room.RoomID);
+            }
+            socket.Emit(onName, Helper.SetOK());
         }
         #endregion
+
+        private const string pushKey = "03d8e34e502182ed17f7a5ea8b2674de";
+        private const string pullKey = "AChGA5ysw5zCWCArcrrb";
+        public string GenLivePushURL()
+        {
+            long timestamp = Helper.TimeStamp + 60 * 60 * 12;
+            return $"{InviteCode}?txSecret={GetTXSecret(InviteCode, pushKey, timestamp)}&txTime={timestamp:X}";
+        }
+        public string GenLivePullURL()
+        {
+            long timestamp = Helper.TimeStamp + 60 * 3;
+            return $"{InviteCode}?txSecret={GetTXSecret(InviteCode, pullKey, timestamp)}&txTime={timestamp:X}";
+        }
+
+        public void RoomBoardCast(string type, object msg)
+        {
+            Clients.ForEach(x=>x.Emit(type, msg));
+            var server = Online.StreamerUser.First(x => x.Value.Id == RoomID).Value;
+            server?.WebSocket.Emit(type, msg);
+        }
+        public static string GetTXSecret(string streamName, string key, long timestamp) =>
+            Helper.MD5Encrypt(key + streamName + timestamp.ToString("X"), false).ToLower();
+
     }
 }
