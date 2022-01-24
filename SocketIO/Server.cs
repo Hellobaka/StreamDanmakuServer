@@ -92,7 +92,7 @@ namespace StreamDanmuku_Server.SocketIO
 
             public void Emit(string type, object msg)
             {
-                Send((new {type, data = new {msg, timestamp = Helper.TimeStamp}}).ToJson());
+                Send((new {type, data = new {msg, timestamp = Helper.TimeStampms}}).ToJson());
             }
 
             private static void RoomBoardCast(int roomID, string type, object msg)
@@ -188,6 +188,15 @@ namespace StreamDanmuku_Server.SocketIO
                         break;
                     case "RoomInfo":
                         Auth_Stream(socket, data, Room.RoomInfo);
+                        break;
+                    case "GetPushUrl":
+                        Auth_Stream(socket, data, Room.GetPushUrl);
+                        break;
+                    case "GetPullUrl":
+                        Auth_Stream(socket, data, Room.GetPullUrl);
+                        break;
+                    case "SwitchStream":
+                        Auth_Stream(socket, data, Room.SwitchStream);
                         break;
                     default:
                         break;
