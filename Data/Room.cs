@@ -4,6 +4,7 @@ using StreamDanmuku_Server.SocketIO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using StreamDanmuku_Server.Enum;
 using static StreamDanmuku_Server.SocketIO.Server;
 
 namespace StreamDanmuku_Server.Data
@@ -11,13 +12,6 @@ namespace StreamDanmuku_Server.Data
     [JsonObject(MemberSerialization.OptOut)]
     public class Room : ICloneable
     {
-        public enum StreamMode
-        {
-            TRTC,
-            QuickLive,
-            WebRTC,
-            AudioChat
-        }
         /// <summary>
         /// 直播间标题
         /// </summary>
@@ -123,7 +117,7 @@ namespace StreamDanmuku_Server.Data
         public static void JoinRoom(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.Find(x => x.InviteCode == data["query"].ToString() || x.RoomID == (int)data["query"]);
-            if (room != null)// 通过邀请码或ID查询到了房间, 返回房间ID以及密码要求
+            if (room is {Enterable: true})// 通过邀请码或ID查询到了房间, 返回房间ID以及密码要求
             {
                 socket.Emit(onName, Helper.SetOK("ok", new { id = room.RoomID, passwordNeeded = room.PasswordNeeded }));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} success, RoomID={data["id"]}", true);
@@ -152,6 +146,8 @@ namespace StreamDanmuku_Server.Data
                     if (room.Max > room.ClientCount)
                     {
                         socket.Emit(onName, Helper.SetOK());
+                        user.Status = User.UserStatus.Client;
+
                         RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
                     }
                     else// 超出房间规定最大人数
@@ -230,7 +226,6 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">未使用字段</param>
         public static void OnLeave(MsgHandler socket, JToken data, string onName, User user)
         {
-            // 根据用户存储看直播的房间ID, 获取服务端连接
             var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
             server.WebSocket.Emit(onName, new { from = user.Id });
             RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} to server {server.NickName} leave", true);
@@ -323,12 +318,12 @@ namespace StreamDanmuku_Server.Data
         {
             // TODO: 禁止自己进入自己房间
             var room = Online.Rooms.Find(x => x.RoomID == (int)data["id"]);
-            user.Status = User.UserStatus.Client;
             user.StreamRoom = room.RoomID;
             room.Clients.Add(socket);
             // Online.StreamerUser[socket.ID].StreamRoom = room.UserID;
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
-            socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret(),}));
+            socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
+            room.RoomBoardCast("Enter", user.Id);
         }
         /// <summary>
         /// 创建房间
@@ -377,8 +372,20 @@ namespace StreamDanmuku_Server.Data
         public static void GetPullUrl(MsgHandler socket, JToken data, string onName, User user)
         {            
             var room = Online.Rooms.First(x => x.RoomID == user.StreamRoom);
-            string pullUrl = room.GenLivePullURL();
-            socket.Emit(onName, Helper.SetOK("ok", new {server="webrtc://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+            string pullUrl = string.Empty;
+            switch ((StreamType)(int)data["type"])
+            {
+                case StreamType.WebRTC:
+                    pullUrl = room.GenLivePullURL(false);
+                    socket.Emit(onName, Helper.SetOK("ok", new {server="webrtc://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+                    break;
+                case StreamType.RTMP:
+                    pullUrl = room.GenLivePullURL(true);
+                    socket.Emit(onName, Helper.SetOK("ok", new {server="http://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+                    break;
+                default:
+                    break;
+            }
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}",true);
         }
         public static void SwitchStream(MsgHandler socket, JToken data, string onName, User user)
@@ -395,19 +402,40 @@ namespace StreamDanmuku_Server.Data
             }
             socket.Emit(onName, Helper.SetOK());
         }
+        /// <summary>
+        /// 发送弹幕
+        /// </summary>
+        /// <param name="socket">直播连接</param>
+        /// <param name="data">content: 弹幕内容; color: 颜色; position: 弹幕位置;</param>
+        public static void Danmuku(MsgHandler socket, JToken data, string onName, User user)
+        {
+            var room = Online.Rooms.First(x => x.RoomID == user.Id);
+            var danmuku = new
+            {
+                content = data["content"].ToString(),
+                color = data["color"].ToString(),
+                position = (DanmukuPosition)(int)data["position"],
+                name = user.NickName,
+                userID = user.Id,
+                time = Helper.TimeStamp
+            };
+            room.RoomBoardCast("OnDanmuku", danmuku);
+            socket.Emit("SendDanmuku", Helper.SetOK("ok", danmuku));
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmuku: {danmuku.content}",true);
+        }
         #endregion
 
-        private const string pushKey = "03d8e34e502182ed17f7a5ea8b2674de";
-        private const string pullKey = "AChGA5ysw5zCWCArcrrb";
+        private string pushKey = Config.GetConfig<string>("Live_PushKey");
+        private string pullKey = Config.GetConfig<string>("Live_PullKey");
         public string GenLivePushURL()
         {
             long timestamp = Helper.TimeStamp + 60 * 60 * 12;
             return $"{InviteCode}?txSecret={GetTXSecret(InviteCode, pushKey, timestamp)}&txTime={timestamp:X}";
         }
-        public string GenLivePullURL()
+        public string GenLivePullURL(bool flv = false)
         {
             long timestamp = Helper.TimeStamp + 60 * 3;
-            return $"{InviteCode}?txSecret={GetTXSecret(InviteCode, pullKey, timestamp)}&txTime={timestamp:X}";
+            return $"{InviteCode}{(flv ? ".flv" : "")}?txSecret={GetTXSecret(InviteCode, pullKey, timestamp)}&txTime={timestamp:X}";
         }
 
         public void RoomBoardCast(string type, object msg)

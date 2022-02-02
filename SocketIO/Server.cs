@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WebSocketSharp.Server;
@@ -44,6 +45,8 @@ namespace StreamDanmuku_Server.SocketIO
 
         public class MsgHandler : WebSocketBehavior
         {
+            public User CurrentUser { get; set; } = null;
+
             protected override void OnMessage(MessageEventArgs e)
             {
                 HandleMessage(this, e.Data);
@@ -62,25 +65,28 @@ namespace StreamDanmuku_Server.SocketIO
                 {
                     var client = Online.StreamerUser[ID];
                     RuntimeLog.WriteSystemLog("Room Removed", $"clientStatus={client.Status}", true);
-                    if (client.Status == User.UserStatus.Client)
+                    switch (client.Status)
                     {
-                        var room = Online.Rooms.FirstOrDefault(x => x.RoomID == client.StreamRoom);
-                        if (room != null)
+                        case User.UserStatus.Client:
                         {
-                            room.Clients.Remove(this);
-                            Online.Users.First(x => x.Value.Id == client.Id).Value.Status = User.UserStatus.StandBy;
-                            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
-                            if (server != null)
-                                server.WebSocket.Emit("Leave", new {from = client.Id});
+                            var room = Online.Rooms.FirstOrDefault(x => x.RoomID == client.StreamRoom);
+                            if (room != null)
+                            {
+                                room.Clients.Remove(this);
+                                Online.Users.First(x => x.Value.Id == client.Id).Value.Status = User.UserStatus.StandBy;
+                                var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
+                                server?.WebSocket.Emit("Leave", new {from = client.Id});
+                            }
+
+                            break;
                         }
-                    }
-                    else if (client.Status == User.UserStatus.Streaming)
-                    {
-                        RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={client.Id}", true);
-                        RoomBoardCast(client.Id, "RoomVanish", new {roomID = client.Id});
-                        BoardCast("RoomRemove", new {roomID = client.Id});
-                        Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
-                        client.Status = User.UserStatus.StandBy;
+                        case User.UserStatus.Streaming:
+                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={client.Id}", true);
+                            RoomBoardCast(client.Id, "RoomVanish", new {roomID = client.Id});
+                            BoardCast("RoomRemove", new {roomID = client.Id});
+                            Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
+                            client.Status = User.UserStatus.StandBy;
+                            break;
                     }
 
                     Online.StreamerUser.Remove(ID);
@@ -198,6 +204,9 @@ namespace StreamDanmuku_Server.SocketIO
                     case "SwitchStream":
                         Auth_Stream(socket, data, Room.SwitchStream);
                         break;
+                    case "SendDanmuku":
+                        Auth_Stream(socket, data, Room.Danmuku);
+                        break;
                     default:
                         break;
                 }
@@ -236,10 +245,9 @@ namespace StreamDanmuku_Server.SocketIO
             string onName = func.Method.Name;
             try
             {
-                if (Online.Users.ContainsKey(socket.ID))
+                if (socket.CurrentUser!=null)
                 {
-                    var user = Online.Users[socket.ID];
-                    func.Invoke(socket, data, onName, user);
+                    func.Invoke(socket, data, onName, socket.CurrentUser);
                 }
                 else
                 {
@@ -288,6 +296,7 @@ namespace StreamDanmuku_Server.SocketIO
                         }
                         else
                         {
+                            socket.CurrentUser = user;
                             if (user.LastChange != (DateTime) json["statusChange"])
                             {
                                 socket.Emit(resultName, Helper.SetError(501));
@@ -300,8 +309,8 @@ namespace StreamDanmuku_Server.SocketIO
                             {
                                 if (Online.Users.Any(x => x.Value.Id == user.Id))
                                 {
-                                    //user.Status = Online.Users.First(x => x.Value.Id == user.Id).Value.Status;
-                                    user.Status = User.UserStatus.Streaming;
+                                    user.Status = Online.Users.First(x => x.Value.Id == user.Id).Value.Status;
+                                    //user.Status = User.UserStatus.Streaming;
                                     if (Online.StreamerUser.All(x => x.Value.Id != user.Id))
                                         Online.StreamerUser.Add(socket.ID, user);
                                 }
@@ -314,7 +323,7 @@ namespace StreamDanmuku_Server.SocketIO
                             {
                                 Online.Users[socket.ID] = user;
                             }
-
+                            Thread.Sleep(300);
                             socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
                             RuntimeLog.WriteSystemLog(onName,
                                 $"{onName} success, user: id={user.Id}, name={user.NickName}", true);
