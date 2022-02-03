@@ -95,6 +95,7 @@ namespace StreamDanmuku_Server.Data
                 return Online.Users.FirstOrDefault(x => x.Id == RoomID);
             }
         }
+        public List<Danmuku> DanmukuList { get; set; } = new();
         public object Clone() => MemberwiseClone();
         /// <summary>
         /// 获取脱敏数据
@@ -103,7 +104,7 @@ namespace StreamDanmuku_Server.Data
         public object WithoutSecret()
         {
             var c = (Room)Clone();
-            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode, c.Mode };
+            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode, c.Mode, c.DanmukuList };
         }
         #region WebSocket逻辑
 
@@ -248,9 +249,27 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">未使用字段</param>
         public static void OnLeave(MsgHandler socket, JToken data, string onName, User user)
         {
-            user.CurrentRoom.Server?.WebSocket.Emit(onName, new { from = user.Id });
+            switch (user.Status)
+            {
+                case UserStatus.Client:
+                {
+                    if (user.CurrentRoom != null)
+                    {
+                        user.CurrentRoom.Clients.Remove(socket);
+                        user.Status = UserStatus.StandBy;
+                        user.CurrentRoom.RoomBoardCast("OnLeave",new {from = user.Id});
+                    }
+                    break;
+                }
+                case UserStatus.Streaming:
+                    RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={user.Id}", true);
+                    user.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = user.Id});
+                    BoardCast("RoomRemove", new {roomID = user.Id});
+                    Online.Rooms.Remove(user.CurrentRoom);
+                    user.Status = UserStatus.StandBy;
+                    break;
+            }
             user.CurrentRoom = null;
-            user.Status = UserStatus.StandBy;
             RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} leave", true);
         }
         /// <summary>
@@ -349,7 +368,7 @@ namespace StreamDanmuku_Server.Data
             room.Clients.Add(socket);
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
             socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
-            room.RoomBoardCast("Enter", user.Id);
+            room.RoomBoardCast("OnEnter", user.Id);
         }
         /// <summary>
         /// 创建房间
@@ -358,12 +377,12 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">Room表单</param>
         public static void CreateRoom(MsgHandler socket, JToken data, string onName, User user)
         {
-            if (Online.Rooms.Any(x => x.RoomID == user.Id))
-            {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: duplicate user room", false);
-                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateRoom));
-                return;
-            }
+            // if (Online.Rooms.Any(x => x.RoomID == user.Id))
+            // {
+            //     RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: duplicate user room", false);
+            //     socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateRoom));
+            //     return;
+            // }
             Room room = new()
             {
                 IsPublic = (bool)data["isPublic"],
@@ -383,6 +402,7 @@ namespace StreamDanmuku_Server.Data
                 return;
             }
             user.Status = UserStatus.Streaming;
+            user.CurrentRoom = room;
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}", true);
             Online.Rooms.Add(room);
             socket.Emit(onName, Helper.SetOK());
@@ -435,19 +455,19 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">content: 弹幕内容; color: 颜色; position: 弹幕位置;</param>
         public static void Danmuku(MsgHandler socket, JToken data, string onName, User user)
         {
-            var room = Online.Rooms.First(x => x.RoomID == user.Id);
-            var danmuku = new
+            var room = user.CurrentRoom;
+            var danmuku = new Danmuku()
             {
-                content = data["content"].ToString(),
-                color = data["color"].ToString(),
-                position = (DanmukuPosition)(int)data["position"],
-                name = user.NickName,
-                userID = user.Id,
-                time = Helper.TimeStamp
+                Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),
+                Color = data["color"].ToString(),
+                Position = (DanmukuPosition)(int)data["position"],
+                SenderUserName = user.NickName,
+                SenderUserID = user.Id,
+                Time = Helper.TimeStamp
             };
             room.RoomBoardCast("OnDanmuku", danmuku);
             socket.Emit("SendDanmuku", Helper.SetOK("ok", danmuku));
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmuku: {danmuku.content}",true);
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmuku: {danmuku.Content}",true);
         }
         #endregion
 
