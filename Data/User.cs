@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SqlSugar;
+using StreamDanmuku_Server.Enum;
 using static StreamDanmuku_Server.SocketIO.Server;
 
 
@@ -37,15 +38,10 @@ namespace StreamDanmuku_Server.Data
         /// </summary>
         public DateTime CreateTime { get; set; }
         /// <summary>
-        /// 加入的房间
-        /// </summary>
-        [SugarColumn(IsIgnore = true)]
-        public int StreamRoom { get; set; }
-        /// <summary>
         /// 用户状态
         /// </summary>
         [SugarColumn(IsIgnore = true)]
-        public UserStatus Status { get; set; } = UserStatus.StandBy;
+        public UserStatus Status { get; set; } = UserStatus.OffLine;
         [SugarColumn(IsIgnore = true)]
         [JsonIgnore]
         public MsgHandler WebSocket { get; set; }
@@ -54,27 +50,10 @@ namespace StreamDanmuku_Server.Data
         /// </summary>
         [SugarColumn(IsIgnore = true)]
         public string XorKey { get; set; }
-        /// <summary>
-        /// 用户当前状态
-        /// </summary>
-        public enum UserStatus
-        {
-            /// <summary>
-            /// 直播中
-            /// </summary>
-            Streaming,
-            /// <summary>
-            /// 观看直播中
-            /// </summary>
-            Client,
-            /// <summary>
-            /// 在大厅
-            /// </summary>
-            StandBy,
-            Banned,
-            OffLine
-        }
-
+        
+        [SugarColumn(IsIgnore = true)]
+        [JsonIgnore]
+        public Room CurrentRoom { get; set; }
         #region SQL逻辑
         /// <summary>
         /// 保存当前状态
@@ -176,7 +155,7 @@ namespace StreamDanmuku_Server.Data
                 else
                 {
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, captcha refresh in CD", false);
-                    socket.Emit(onName, Helper.SetError(403));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaCoolDown));
                     return;
                 }
             }
@@ -203,13 +182,13 @@ namespace StreamDanmuku_Server.Data
                 }
                 else
                 {
-                    socket.Emit(onName, Helper.SetError(402));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaInvalidOrWrong));
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, captcha is expired or invalid", false);
                 }
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(307));
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
             }
         }
@@ -230,13 +209,13 @@ namespace StreamDanmuku_Server.Data
             }
             else if (formatError)
             {
-                socket.Emit(onName, Helper.SetError(309));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, formatError, id={user.Id}, nickname={user.NickName}", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.UserNameFormatError));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, formatError, id={user.Id}, username={user.NickName}", false);
             }
             else if (duplicate)
             {
-                socket.Emit(onName, Helper.SetError(302));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, duplicate nickname, id={user.Id}, nickname={user.NickName}", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateUsername));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, duplicate username, id={user.Id}, nickname={user.NickName}", false);
             }
         }
         /// <summary>
@@ -258,7 +237,7 @@ namespace StreamDanmuku_Server.Data
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(310));
+                socket.Emit(onName, Helper.SetError(ErrorCode.OldPasswordNotMatchNewPassword));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, oldPassword not equal to newPassword", false);
             }
         }
@@ -282,12 +261,12 @@ namespace StreamDanmuku_Server.Data
             }
             else if (formatError)
             {
-                socket.Emit(onName, Helper.SetError(305));
+                socket.Emit(onName, Helper.SetError(ErrorCode.EmailFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} formatError", false);
             }
             else if (duplicate)
             {
-                socket.Emit(onName, Helper.SetError(301));
+                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateEmail));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} duplicate email", false);
             }
         }
@@ -304,17 +283,15 @@ namespace StreamDanmuku_Server.Data
                 x.PassWord == password);
             if (user == null)
             {
-                socket.Emit(onName, Helper.SetError(303));
+                socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
                 RuntimeLog.WriteSystemLog(onName, $"Login Fail. Account: {data["account"]}, Pass: {data["password"]}",
                     false);
             }
             else
             {
+                user.Status = UserStatus.StandBy;
                 user.WebSocket = socket;
-                if (Online.Users.ContainsKey(socket.ID))
-                    Online.Users[socket.ID] = user;
-                else
-                    Online.Users.Add(socket.ID, user);
+                Online.Users.Add(user);
                 socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
                 RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
             }
@@ -330,13 +307,13 @@ namespace StreamDanmuku_Server.Data
             VerifyEmail(email, out bool formatError, out bool duplicate);
             if (formatError)
             {
-                socket.Emit(onName, Helper.SetError(305));
+                socket.Emit(onName, Helper.SetError(ErrorCode.EmailFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"email format wrong", false);
                 return;
             }
             else if(duplicate)
             {
-                socket.Emit(onName, Helper.SetError(301));
+                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateEmail));
                 RuntimeLog.WriteSystemLog(onName, $"duplicate email", false);
                 return;
             }
@@ -344,20 +321,20 @@ namespace StreamDanmuku_Server.Data
             VerifyNickName(nickname, out formatError, out duplicate);
             if (formatError)
             {
-                socket.Emit(onName, Helper.SetError(306));
+                socket.Emit(onName, Helper.SetError(ErrorCode.UserNameFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"nickname format wrong", false);
                 return;
             }
             else if(duplicate)
             {
-                socket.Emit(onName, Helper.SetError(302));
-                RuntimeLog.WriteSystemLog(onName, $"nickname email", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateEmail));
+                RuntimeLog.WriteSystemLog(onName, $"duplicate email", false);
                 return;
             }
             
             if (password.Length != 32)
             {
-                socket.Emit(onName, Helper.SetError(304));
+                socket.Emit(onName, Helper.SetError(ErrorCode.PasswordFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"password format wrong", false);
             }
             User u = new()

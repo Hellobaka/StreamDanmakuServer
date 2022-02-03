@@ -6,6 +6,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using StreamDanmuku_Server.Enum;
 
 namespace StreamDanmuku_Server
 {
@@ -27,8 +28,8 @@ namespace StreamDanmuku_Server
         public static FunctionResult SetOK(string msg = "ok", object obj = null) =>
             new() {code = 200, msg = msg, data = obj};
 
-        public static FunctionResult SetError(int code, string msg = "err", object obj = null) =>
-            new() {code = code, msg = ErrorCode.Content[code], data = obj};
+        public static FunctionResult SetError(ErrorCode code, string msg = "err", object obj = null) =>
+            new() {code = (int)code, msg = ErrorCodeDict.Content[(int)code], data = obj};
 
         /// <summary>
         /// 扩展方法 快捷调用对象序列化

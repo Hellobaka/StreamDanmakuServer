@@ -16,53 +16,65 @@ namespace StreamDanmuku_Server.Data
         /// 直播间标题
         /// </summary>
         public string Title { get; set; }
+
         /// <summary>
         /// 直播间ID, 通常认为这个ID与创建直播间的用户ID相同
         /// </summary>
         public int RoomID { get; set; }
+
         /// <summary>
         /// 创建直播间的用户昵称
         /// </summary>
         public string CreatorName { get; set; }
+
         /// <summary>
         /// 房间是否公开 - 是否可被搜索/在房间列表展示
         /// </summary>
         public bool IsPublic { get; set; }
+
         /// <summary>
         /// 进入房间是否需要密码
         /// </summary>
         public bool PasswordNeeded => !string.IsNullOrWhiteSpace(Password);
+
         /// <summary>
         /// 进入房间所需要的密码
         /// </summary>
         [JsonIgnore]
         public string Password { get; set; }
+
         /// <summary>
         /// 邀请码
         /// </summary>
         [JsonIgnore]
         public string InviteCode { get; set; }
+
         /// <summary>
         /// 房间最大容纳人数
         /// </summary>
         public int Max { get; set; }
+
         /// <summary>
         /// 房间创建时间
         /// </summary>
         public DateTime CreateTime { get; set; }
+
         /// <summary>
         /// 房间内观众对应的WebSocket(或许应当改成User对象
         /// </summary>
         [JsonIgnore]
         public List<MsgHandler> Clients { get; set; } = new();
+
         /// <summary>
         /// 房间人数
         /// </summary>
         public int ClientCount => Clients.Count;
+
         /// <summary>
         /// 拉流地址
         /// </summary>
         public string StreamPullURL { get; set; }
+
         /// <summary>
         /// 推流地址
         /// </summary>
@@ -72,7 +84,17 @@ namespace StreamDanmuku_Server.Data
         /// 房间是否可加入
         /// </summary>
         public bool Enterable { get; set; } = false;
+
         public StreamMode Mode { get; set; } = StreamMode.QuickLive;
+
+        [JsonIgnore]
+        public User Server
+        {
+            get
+            {
+                return Online.Users.FirstOrDefault(x => x.Id == RoomID);
+            }
+        }
         public object Clone() => MemberwiseClone();
         /// <summary>
         /// 获取脱敏数据
@@ -102,7 +124,7 @@ namespace StreamDanmuku_Server.Data
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(311));
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid", false);
             }
         }
@@ -124,8 +146,8 @@ namespace StreamDanmuku_Server.Data
             }
             else// 检索失败
             {
-                socket.Emit(onName, Helper.SetError(311));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExistOrUnenterable));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid or unenterable", false);
             }
         }
 
@@ -146,25 +168,25 @@ namespace StreamDanmuku_Server.Data
                     if (room.Max > room.ClientCount)
                     {
                         socket.Emit(onName, Helper.SetOK());
-                        user.Status = User.UserStatus.Client;
+                        user.Status = UserStatus.Client;
 
                         RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
                     }
                     else// 超出房间规定最大人数
                     {
-                        socket.Emit(onName, Helper.SetError(312));
+                        socket.Emit(onName, Helper.SetError(ErrorCode.RoomFull));
                         RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is full", false);
                     }
                 }
                 else
                 {
-                    socket.Emit(onName, Helper.SetError(310));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, password is wrong", false);
                 }
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(311));
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
             }
         }
@@ -190,7 +212,7 @@ namespace StreamDanmuku_Server.Data
             {
                 if (room.Enterable is false)
                 {
-                    socket.Emit(onName, Helper.SetError(313));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.RoomUnenterable));
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, enterable is false", false);
                     return;
                 }
@@ -203,19 +225,19 @@ namespace StreamDanmuku_Server.Data
                     }
                     else
                     {
-                        socket.Emit(onName, Helper.SetError(310));
+                        socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
                         RuntimeLog.WriteSystemLog(onName, $"{onName} error, password is incorrect", false);
                     }
                 }
                 else// 验证了不需要密码的房间
                 {
-                    socket.Emit(onName, Helper.SetError(401));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, verify non password room", false);
                 }
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(311));
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid", false);
             }
         }
@@ -226,9 +248,10 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">未使用字段</param>
         public static void OnLeave(MsgHandler socket, JToken data, string onName, User user)
         {
-            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
-            server.WebSocket.Emit(onName, new { from = user.Id });
-            RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} to server {server.NickName} leave", true);
+            user.CurrentRoom.Server?.WebSocket.Emit(onName, new { from = user.Id });
+            user.CurrentRoom = null;
+            user.Status = UserStatus.StandBy;
+            RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} leave", true);
         }
         /// <summary>
         /// 令牌传输
@@ -237,15 +260,14 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">candidate: 令牌信息; to: 目标ID, 一般用于服务端向观众</param>
         public static void OnCandidate(MsgHandler socket, JToken data, string onName, User user)
         {
+            var server = user.CurrentRoom.Server;
             switch (user.Status)
             {
-                case User.UserStatus.Client:// 观众向服务端传输令牌
+                case UserStatus.Client:// 观众向服务端传输令牌
                 {
-                    var room = Online.Rooms.Find(x => x.RoomID == user.StreamRoom);
-                    if (room != null)
+                    if (user.CurrentRoom != null)
                     {
-                        var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
-                        server.WebSocket.Emit(onName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
+                        server?.WebSocket.Emit(onName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
                         RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} to server {server.NickName} Candidate", true);
                     }
                     else
@@ -254,10 +276,10 @@ namespace StreamDanmuku_Server.Data
                     }
                     break;
                 }
-                case User.UserStatus.Streaming:// 服务端向观众传输令牌
+                case UserStatus.Streaming:// 服务端向观众传输令牌
                 {
-                    var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == (int)data["to"]).Value;
-                    client.WebSocket.Emit(onName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
+                    var client = Online.Users.FirstOrDefault(x => x.Id == (int) data["to"]);
+                    client?.WebSocket.Emit(onName, new { data = data["candidate"].ToObject<object>(), from = user.Id });
                     RuntimeLog.WriteSystemLog(onName, $"{onName}, server {user.NickName} to client {client.NickName} Candidate", true);
                     break;
                 }
@@ -271,7 +293,7 @@ namespace StreamDanmuku_Server.Data
         public static void OnAnswer(MsgHandler socket, JToken data, string onName, User user)
         {
             // Client => Server: createAnswer
-            var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == user.StreamRoom).Value;
+            var server = user.CurrentRoom.Server;
             server.WebSocket.Emit(onName, new { data = data["answer"].ToObject<object>(), from = user.Id });
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} to server {server.NickName} answer", true);
         }
@@ -286,23 +308,22 @@ namespace StreamDanmuku_Server.Data
             // Server => Client: createOffer
             switch (user.Status)
             {
-                case User.UserStatus.Client:
+                case UserStatus.Client:
                 {
-                    var room = Online.Rooms.Find(x => x.RoomID == user.StreamRoom);
-                    if (room != null)
+                    if (user.CurrentRoom != null)
                     {
                         // 拉流端发送offer请求，之后服务器将请求转发给推流端，并携带此用户的ID
-                        var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
+                        var server = user.CurrentRoom.Server;
                         server.WebSocket.Emit(onName, new { data = data["offer"].ToString(), from = user.Id });
                         RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} to server {server.NickName} offer", true);
                     }
 
                     break;
                 }
-                case User.UserStatus.Streaming:
+                case UserStatus.Streaming:
                 {
                     // 推流端应当在应答中添加ID
-                    var client = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == ((int)data["to"])).Value;
+                    var client = Online.Users.FirstOrDefault(x => x.Id == ((int)data["to"]));
                     client.WebSocket.Emit(onName, new { data = data["offer"].ToObject<object>(), from = user.Id });
                     RuntimeLog.WriteSystemLog(onName, $"{onName}, server {user.NickName} to client {client.NickName} offer", true);
                     break;
@@ -316,11 +337,16 @@ namespace StreamDanmuku_Server.Data
         /// <param name="data">id: 房间ID; </param>
         public static void RoomEntered(MsgHandler socket, JToken data, string onName, User user)
         {
-            // TODO: 禁止自己进入自己房间
             var room = Online.Rooms.Find(x => x.RoomID == (int)data["id"]);
-            user.StreamRoom = room.RoomID;
+            if (room is not {Enterable: true})
+            {
+                RuntimeLog.WriteSystemLog(onName, $"{onName}, room[{(int)data["id"]}] is null", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+                return;
+            }
+            user.CurrentRoom = room;
+            user.Status = UserStatus.Client;
             room.Clients.Add(socket);
-            // Online.StreamerUser[socket.ID].StreamRoom = room.UserID;
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
             socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
             room.RoomBoardCast("Enter", user.Id);
@@ -335,7 +361,7 @@ namespace StreamDanmuku_Server.Data
             if (Online.Rooms.Any(x => x.RoomID == user.Id))
             {
                 RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: duplicate user room", false);
-                socket.Emit(onName, Helper.SetError(308));
+                socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateRoom));
                 return;
             }
             Room room = new()
@@ -353,10 +379,10 @@ namespace StreamDanmuku_Server.Data
             if (room.Max is < 2 or > 51)// 高级
             {
                 RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: invalid args", false);
-                socket.Emit(onName, Helper.SetError(401));
+                socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
                 return;
             }
-            user.Status = User.UserStatus.Streaming;
+            user.Status = UserStatus.Streaming;
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}", true);
             Online.Rooms.Add(room);
             socket.Emit(onName, Helper.SetOK());
@@ -370,8 +396,8 @@ namespace StreamDanmuku_Server.Data
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPushUrl: {pushUrl}",true);
         }
         public static void GetPullUrl(MsgHandler socket, JToken data, string onName, User user)
-        {            
-            var room = Online.Rooms.First(x => x.RoomID == user.StreamRoom);
+        {
+            var room = user.CurrentRoom;
             string pullUrl = string.Empty;
             switch ((StreamType)(int)data["type"])
             {
@@ -441,8 +467,7 @@ namespace StreamDanmuku_Server.Data
         public void RoomBoardCast(string type, object msg)
         {
             Clients.ForEach(x=>x.Emit(type, msg));
-            var server = Online.StreamerUser.First(x => x.Value.Id == RoomID).Value;
-            server?.WebSocket.Emit(type, msg);
+            Server?.WebSocket.Emit(type, msg);
         }
         public static string GetTXSecret(string streamName, string key, long timestamp) =>
             Helper.MD5Encrypt(key + streamName + timestamp.ToString("X"), false).ToLower();
