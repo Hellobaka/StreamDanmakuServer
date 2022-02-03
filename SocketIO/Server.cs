@@ -7,6 +7,7 @@ using WebSocketSharp.Server;
 using StreamDanmuku_Server.Data;
 using WebSocketSharp;
 using JWT.Exceptions;
+using StreamDanmuku_Server.Enum;
 
 namespace StreamDanmuku_Server.SocketIO
 {
@@ -39,7 +40,7 @@ namespace StreamDanmuku_Server.SocketIO
         {
             foreach (var item in Online.Users)
             {
-                item.Value.WebSocket.Emit(type, msg);
+                item.WebSocket.Emit(type, msg);
             }
         }
 
@@ -59,37 +60,29 @@ namespace StreamDanmuku_Server.SocketIO
 
             protected override void OnClose(CloseEventArgs e)
             {
-                if (Online.Users.ContainsKey(ID))
-                    Online.Users.Remove(ID);
-                if (Online.StreamerUser.ContainsKey(ID))
+                if (Online.Users.Contains(CurrentUser))
                 {
-                    var client = Online.StreamerUser[ID];
-                    RuntimeLog.WriteSystemLog("Room Removed", $"clientStatus={client.Status}", true);
-                    switch (client.Status)
+                    switch (CurrentUser.Status)
                     {
-                        case User.UserStatus.Client:
+                        case UserStatus.Client:
                         {
-                            var room = Online.Rooms.FirstOrDefault(x => x.RoomID == client.StreamRoom);
-                            if (room != null)
+                            if (CurrentUser.CurrentRoom != null)
                             {
-                                room.Clients.Remove(this);
-                                Online.Users.First(x => x.Value.Id == client.Id).Value.Status = User.UserStatus.StandBy;
-                                var server = Online.StreamerUser.FirstOrDefault(x => x.Value.Id == room.RoomID).Value;
-                                server?.WebSocket.Emit("Leave", new {from = client.Id});
+                                CurrentUser.CurrentRoom.Clients.Remove(this);
+                                CurrentUser.Status = UserStatus.StandBy;
+                                CurrentUser.CurrentRoom.Server?.WebSocket.Emit("Leave", new {from = CurrentUser.Id});
                             }
 
                             break;
                         }
-                        case User.UserStatus.Streaming:
-                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={client.Id}", true);
-                            RoomBoardCast(client.Id, "RoomVanish", new {roomID = client.Id});
-                            BoardCast("RoomRemove", new {roomID = client.Id});
-                            Online.Rooms.Remove(Online.Rooms.First(x => x.RoomID == client.Id));
-                            client.Status = User.UserStatus.StandBy;
+                        case UserStatus.Streaming:
+                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
+                            CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = CurrentUser.Id});
+                            BoardCast("RoomRemove", new {roomID = CurrentUser.Id});
+                            Online.Rooms.Remove(CurrentUser.CurrentRoom);
+                            CurrentUser.Status = UserStatus.StandBy;
                             break;
                     }
-
-                    Online.StreamerUser.Remove(ID);
                 }
 
                 BoardCast("OnlineUserChange", new {count = Online.Users.Count});
@@ -109,8 +102,7 @@ namespace StreamDanmuku_Server.SocketIO
                     if (room != null)
                     {
                         room.Clients.ForEach(x => x.Emit(type, msg));
-                        var server = Online.StreamerUser.First(x => x.Value.Id == roomID).Value;
-                        server?.WebSocket.Emit(type, msg);
+                        room.Server?.WebSocket.Emit(type, msg);
                     }
                     else
                     {
@@ -213,32 +205,14 @@ namespace StreamDanmuku_Server.SocketIO
             }
             catch (Exception e)
             {
-                socket.Emit("Error", Helper.SetError(401));
+                socket.Emit("Error", Helper.SetError(ErrorCode.ParamsFormatError));
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"Msg Parse Error, Msg: {e.Message}", false);
             }
         }
 
         private static void Auth_Stream(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
         {
-            string onName = func.Method.Name;
-            try
-            {
-                if (Online.StreamerUser.ContainsKey(socket.ID))
-                {
-                    var stream = Online.StreamerUser[socket.ID];
-                    func.Invoke(socket, data, onName, stream);
-                }
-                else
-                {
-                    socket.Emit(onName, Helper.SetError(307));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, stream is null", false);
-                }
-            }
-            catch (Exception e)
-            {
-                socket.Emit(onName, Helper.SetError(-100));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
-            }
+            Auth_Online(socket, data, func);
         }
         private static void Auth_Online(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
         {            
@@ -251,13 +225,13 @@ namespace StreamDanmuku_Server.SocketIO
                 }
                 else
                 {
-                    socket.Emit(onName, Helper.SetError(307));
+                    socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
                     RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is null", false);
                 }
             }
             catch (Exception e)
             {
-                socket.Emit(onName, Helper.SetError(-100));
+                socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
             }
         }
@@ -271,7 +245,7 @@ namespace StreamDanmuku_Server.SocketIO
             }
             catch (Exception e)
             {
-                socket.Emit(onName, Helper.SetError(-100));
+                socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
             }
         }
@@ -288,10 +262,10 @@ namespace StreamDanmuku_Server.SocketIO
                     {
                         JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
                         RuntimeLog.WriteSystemLog(onName, $"{onName}, {data["jwt"]}", true);
-                        User user = User.GetUserByID((int) json["id"]);
+                        User user = User.GetUserByID((int)json["id"]);
                         if (user == null)
                         {
-                            socket.Emit(resultName, Helper.SetError(503));
+                            socket.Emit(resultName, Helper.SetError(ErrorCode.InvalidUser));
                             RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
                         }
                         else
@@ -299,30 +273,13 @@ namespace StreamDanmuku_Server.SocketIO
                             socket.CurrentUser = user;
                             if (user.LastChange != (DateTime) json["statusChange"])
                             {
-                                socket.Emit(resultName, Helper.SetError(501));
+                                socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
                                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, lastChange not match", false);
                                 return;
                             }
 
                             user.WebSocket = socket;
-                            if (data["streamFlag"] != null && (bool) data["streamFlag"])
-                            {
-                                if (Online.Users.Any(x => x.Value.Id == user.Id))
-                                {
-                                    user.Status = Online.Users.First(x => x.Value.Id == user.Id).Value.Status;
-                                    //user.Status = User.UserStatus.Streaming;
-                                    if (Online.StreamerUser.All(x => x.Value.Id != user.Id))
-                                        Online.StreamerUser.Add(socket.ID, user);
-                                }
-                                else
-                                {
-                                    Online.Users.Add(socket.ID, user);
-                                }
-                            }
-                            else
-                            {
-                                Online.Users[socket.ID] = user;
-                            }
+                            // 保留
                             Thread.Sleep(300);
                             socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
                             RuntimeLog.WriteSystemLog(onName,
@@ -331,17 +288,17 @@ namespace StreamDanmuku_Server.SocketIO
                     }
                     catch (TokenExpiredException)
                     {
-                        socket.Emit(resultName, Helper.SetError(501));
+                        socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
                         RuntimeLog.WriteSystemLog(onName, $"{onName} error, TokenExpired", false);
                     }
                     catch (SignatureVerificationException)
                     {
-                        socket.Emit(resultName, Helper.SetError(502));
+                        socket.Emit(resultName, Helper.SetError(ErrorCode.SignInvalid));
                         RuntimeLog.WriteSystemLog(onName, $"{onName} error, Signature Verification Fail", false);
                     }
                     catch (Exception ex)
                     {
-                        socket.Emit(resultName, Helper.SetError(-100));
+                        socket.Emit(resultName, Helper.SetError(ErrorCode.UnknownError));
                         RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
                     }
                 }
@@ -352,7 +309,7 @@ namespace StreamDanmuku_Server.SocketIO
             }
             catch (Exception ex)
             {
-                socket.Emit(onName, Helper.SetError(401));
+                socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
             }
             finally

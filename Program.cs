@@ -16,9 +16,6 @@ namespace StreamDanmuku_Server
                     case "clearroom":
                         Online.Rooms.Clear();
                         break;
-                    case "getstreamcount":
-                        Console.WriteLine(Online.StreamerUser.Count);
-                        break;
                     default:
                         break;
                 }
