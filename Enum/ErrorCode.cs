@@ -24,6 +24,6 @@
         TokenExpired = 501,
         SignInvalid = 502,
         TokenInvalid = 503,
-        UnknownError = 600,
+        UnknownError = -100,
     }
 }

@@ -291,7 +291,7 @@ namespace StreamDanmuku_Server.Data
             {
                 user.Status = UserStatus.StandBy;
                 user.WebSocket = socket;
-                Online.Users.Add(user);
+                // Online.Users.Add(user);
                 socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
                 RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
             }

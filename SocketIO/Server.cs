@@ -62,26 +62,13 @@ namespace StreamDanmuku_Server.SocketIO
             {
                 if (Online.Users.Contains(CurrentUser))
                 {
-                    switch (CurrentUser.Status)
+                    Online.Users.Remove(CurrentUser);
+                    if(CurrentUser.CurrentRoom != null)
                     {
-                        case UserStatus.Client:
-                        {
-                            if (CurrentUser.CurrentRoom != null)
-                            {
-                                CurrentUser.CurrentRoom.Clients.Remove(this);
-                                CurrentUser.Status = UserStatus.StandBy;
-                                CurrentUser.CurrentRoom.Server?.WebSocket.Emit("Leave", new {from = CurrentUser.Id});
-                            }
-
-                            break;
-                        }
-                        case UserStatus.Streaming:
-                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
-                            CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = CurrentUser.Id});
-                            BoardCast("RoomRemove", new {roomID = CurrentUser.Id});
-                            Online.Rooms.Remove(CurrentUser.CurrentRoom);
-                            CurrentUser.Status = UserStatus.StandBy;
-                            break;
+                        RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
+                        CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
+                        BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
+                        Online.Rooms.Remove(CurrentUser.CurrentRoom);
                     }
                 }
 
@@ -278,6 +265,10 @@ namespace StreamDanmuku_Server.SocketIO
                                 return;
                             }
 
+                            if (Online.Users.Contains(user) is false)
+                            {
+                                Online.Users.Add(user);
+                            }
                             user.WebSocket = socket;
                             // 保留
                             Thread.Sleep(300);
