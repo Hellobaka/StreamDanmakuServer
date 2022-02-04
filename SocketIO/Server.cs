@@ -63,12 +63,21 @@ namespace StreamDanmuku_Server.SocketIO
                 if (Online.Users.Contains(CurrentUser))
                 {
                     Online.Users.Remove(CurrentUser);
-                    if(CurrentUser.CurrentRoom != null)
+                    if (CurrentUser.CurrentRoom != null)
                     {
-                        RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
-                        CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
-                        BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
-                        Online.Rooms.Remove(CurrentUser.CurrentRoom);
+                        switch (CurrentUser.Status)
+                        {
+                            case UserStatus.Streaming:
+                                RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
+                                CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
+                                BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
+                                Online.Rooms.Remove(CurrentUser.CurrentRoom);
+                                break;
+                            case UserStatus.Client:
+                                CurrentUser.CurrentRoom.Clients.Remove(this);
+                                CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new {from = CurrentUser.Id});
+                                break;
+                        }
                     }
                 }
 
@@ -185,6 +194,9 @@ namespace StreamDanmuku_Server.SocketIO
                         break;
                     case "SendDanmuku":
                         Auth_Stream(socket, data, Room.Danmuku);
+                        break;
+                    case "GetRoomDanmuku":
+                        Auth_Stream(socket, data, Room.GetRoomDanmuku);
                         break;
                     default:
                         break;

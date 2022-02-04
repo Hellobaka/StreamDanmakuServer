@@ -84,7 +84,9 @@ namespace StreamDanmuku_Server.Data
         /// 房间是否可加入
         /// </summary>
         public bool Enterable { get; set; } = false;
-
+        /// <summary>
+        /// 直播类别
+        /// </summary>
         public StreamMode Mode { get; set; } = StreamMode.QuickLive;
 
         [JsonIgnore]
@@ -104,7 +106,7 @@ namespace StreamDanmuku_Server.Data
         public object WithoutSecret()
         {
             var c = (Room)Clone();
-            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode, c.Mode, c.DanmukuList };
+            return new { c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount, c.InviteCode, c.Mode };
         }
         #region WebSocket逻辑
 
@@ -465,9 +467,15 @@ namespace StreamDanmuku_Server.Data
                 SenderUserID = user.Id,
                 Time = Helper.TimeStamp
             };
+            room.DanmukuList.Add(danmuku);
             room.RoomBoardCast("OnDanmuku", danmuku);
             socket.Emit("SendDanmuku", Helper.SetOK("ok", danmuku));
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmuku: {danmuku.Content}",true);
+        }
+
+        public static void GetRoomDanmuku(MsgHandler socket, JToken data, string onName, User user)
+        {
+            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmukuList.TakeLast(30).ToList()));
         }
         #endregion
 
