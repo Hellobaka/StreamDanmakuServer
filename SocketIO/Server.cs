@@ -68,15 +68,21 @@ namespace StreamDanmuku_Server.SocketIO
                         switch (CurrentUser.Status)
                         {
                             case UserStatus.Streaming:
-                                RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
-                                CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
-                                BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
-                                Online.Rooms.Remove(CurrentUser.CurrentRoom);
+                                CurrentUser.CurrentRoom.Server = null;
+                                CurrentUser.CurrentRoom.RoomBoardCast("StreamerOffline", new {from = CurrentUser.Id});
                                 break;
                             case UserStatus.Client:
                                 CurrentUser.CurrentRoom.Clients.Remove(this);
                                 CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new {from = CurrentUser.Id});
                                 break;
+                        }
+
+                        if (CurrentUser.CurrentRoom.Clients.Count == 0 && CurrentUser.CurrentRoom.Server == null)
+                        {                                
+                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
+                            CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
+                            BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
+                            Online.Rooms.Remove(CurrentUser.CurrentRoom);
                         }
                     }
                 }
@@ -197,6 +203,9 @@ namespace StreamDanmuku_Server.SocketIO
                         break;
                     case "GetRoomDanmuku":
                         Auth_Stream(socket, data, Room.GetRoomDanmuku);
+                        break;
+                    case "ResumeRoom":
+                        Auth_Online(socket, data, Room.ResumeRoom);
                         break;
                     default:
                         break;

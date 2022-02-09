@@ -90,13 +90,7 @@ namespace StreamDanmuku_Server.Data
         public StreamMode Mode { get; set; } = StreamMode.QuickLive;
 
         [JsonIgnore]
-        public User Server
-        {
-            get
-            {
-                return Online.Users.FirstOrDefault(x => x.Id == RoomID);
-            }
-        }
+        public User Server { get; set; }
         public List<Danmuku> DanmukuList { get; set; } = new();
         public object Clone() => MemberwiseClone();
         /// <summary>
@@ -260,6 +254,13 @@ namespace StreamDanmuku_Server.Data
                         user.CurrentRoom.Clients.Remove(socket);
                         user.Status = UserStatus.StandBy;
                         user.CurrentRoom.RoomBoardCast("OnLeave",new {from = user.Id});
+                        if (user.CurrentRoom.Clients.Count == 0 && user.CurrentRoom.Server == null)
+                        {                                
+                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={user.Id}", true);
+                            user.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = user.Id });
+                            BoardCast("RoomRemove", new { roomID = user.Id });
+                            Online.Rooms.Remove(user.CurrentRoom);
+                        }
                     }
                     break;
                 }
@@ -367,7 +368,10 @@ namespace StreamDanmuku_Server.Data
             }
             user.CurrentRoom = room;
             user.Status = UserStatus.Client;
-            room.Clients.Add(socket);
+            if(room.Clients.Contains(socket) is false)
+            {
+                room.Clients.Add(socket);
+            }
             RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
             socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
             room.RoomBoardCast("OnEnter", user.Id);
@@ -405,11 +409,28 @@ namespace StreamDanmuku_Server.Data
             }
             user.Status = UserStatus.Streaming;
             user.CurrentRoom = room;
+            room.Server = user;
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}", true);
             Online.Rooms.Add(room);
             socket.Emit(onName, Helper.SetOK());
         }
 
+        public static void ResumeRoom(MsgHandler socket, JToken data, string onName, User user)
+        {
+            var room = Online.Rooms.Find(x => x.RoomID == user.Id);
+            if (room != null)
+            {
+                user.Status = UserStatus.Streaming;
+                user.CurrentRoom = room;
+                room.Server = user;
+                socket.Emit(onName, Helper.SetOK());
+                room.RoomBoardCast("StreamerReConnect", "");
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+            }
+        }
         public static void GetPushUrl(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.First(x => x.RoomID == user.Id);
