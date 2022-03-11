@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
     public class Captcha
     {

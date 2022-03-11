@@ -1,13 +1,13 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using StreamDanmuku_Server.SocketIO;
+using StreamDanmaku_Server.SocketIO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using StreamDanmuku_Server.Enum;
-using static StreamDanmuku_Server.SocketIO.Server;
+using StreamDanmaku_Server.Enum;
+using static StreamDanmaku_Server.SocketIO.Server;
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
     [JsonObject(MemberSerialization.OptOut)]
     public class Room : ICloneable
@@ -91,7 +91,7 @@ namespace StreamDanmuku_Server.Data
 
         [JsonIgnore]
         public User Server { get; set; }
-        public List<Danmuku> DanmukuList { get; set; } = new();
+        public List<Danmaku> DanmakuList { get; set; } = new();
         public object Clone() => MemberwiseClone();
         /// <summary>
         /// 获取脱敏数据
@@ -435,7 +435,7 @@ namespace StreamDanmuku_Server.Data
         {
             var room = Online.Rooms.First(x => x.RoomID == user.Id);
             string pushUrl = room.GenLivePushURL();
-            socket.Emit(onName, Helper.SetOK("ok", new {server="rtmp://livepush.hellobaka.xyz/StreamDanmuku/",key=pushUrl}));
+            socket.Emit(onName, Helper.SetOK("ok", new {server="rtmp://livepush.hellobaka.xyz/StreamDanmaku/",key=pushUrl}));
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPushUrl: {pushUrl}",true);
         }
         public static void GetPullUrl(MsgHandler socket, JToken data, string onName, User user)
@@ -446,11 +446,11 @@ namespace StreamDanmuku_Server.Data
             {
                 case StreamType.WebRTC:
                     pullUrl = room.GenLivePullURL(false);
-                    socket.Emit(onName, Helper.SetOK("ok", new {server="webrtc://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+                    socket.Emit(onName, Helper.SetOK("ok", new {server="webrtc://livepull.hellobaka.xyz/StreamDanmaku/",key=pullUrl}));
                     break;
                 case StreamType.RTMP:
                     pullUrl = room.GenLivePullURL(true);
-                    socket.Emit(onName, Helper.SetOK("ok", new {server="http://livepull.hellobaka.xyz/StreamDanmuku/",key=pullUrl}));
+                    socket.Emit(onName, Helper.SetOK("ok", new {server="http://livepull.hellobaka.xyz/StreamDanmaku/",key=pullUrl}));
                     break;
                 default:
                     break;
@@ -476,27 +476,27 @@ namespace StreamDanmuku_Server.Data
         /// </summary>
         /// <param name="socket">直播连接</param>
         /// <param name="data">content: 弹幕内容; color: 颜色; position: 弹幕位置;</param>
-        public static void Danmuku(MsgHandler socket, JToken data, string onName, User user)
+        public static void Danmaku(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = user.CurrentRoom;
-            var danmuku = new Danmuku()
+            var danmaku = new Danmaku()
             {
                 Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),
                 Color = data["color"].ToString(),
-                Position = (DanmukuPosition)(int)data["position"],
+                Position = (DanmakuPosition)(int)data["position"],
                 SenderUserName = user.NickName,
                 SenderUserID = user.Id,
                 Time = Helper.TimeStamp
             };
-            room.DanmukuList.Add(danmuku);
-            room.RoomBoardCast("OnDanmuku", danmuku);
-            socket.Emit("SendDanmuku", Helper.SetOK("ok", danmuku));
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmuku: {danmuku.Content}",true);
+            room.DanmakuList.Add(danmaku);
+            room.RoomBoardCast("OnDanmaku", danmaku);
+            socket.Emit("SendDanmaku", Helper.SetOK("ok", danmaku));
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmaku: {danmaku.Content}",true);
         }
 
-        public static void GetRoomDanmuku(MsgHandler socket, JToken data, string onName, User user)
+        public static void GetRoomDanmaku(MsgHandler socket, JToken data, string onName, User user)
         {
-            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmukuList.TakeLast(30).ToList()));
+            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmakuList.TakeLast(30).ToList()));
         }
         #endregion
 

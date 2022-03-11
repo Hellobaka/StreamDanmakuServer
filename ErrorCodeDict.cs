@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace StreamDanmuku_Server
+namespace StreamDanmaku_Server
 {
     internal static class ErrorCodeDict
     {

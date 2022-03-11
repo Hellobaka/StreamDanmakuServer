@@ -1,12 +1,12 @@
-﻿using StreamDanmuku_Server.Enum;
+﻿using StreamDanmaku_Server.Enum;
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
-    public class Danmuku
+    public class Danmaku
     {
         public string Content { get; set; }
         public string Color { get; set; }
-        public DanmukuPosition Position { get; set; }
+        public DanmakuPosition Position { get; set; }
         public long Time { get; set; }
         public string SenderUserName { get; set; }
         public int SenderUserID { get; set; }

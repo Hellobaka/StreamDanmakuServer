@@ -2,7 +2,7 @@
 using System;
 using System.IO;
 
-namespace StreamDanmuku_Server
+namespace StreamDanmaku_Server
 {
     public static class Config
     {

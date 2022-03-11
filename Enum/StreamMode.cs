@@ -1,4 +1,4 @@
-﻿namespace StreamDanmuku_Server.Enum
+﻿namespace StreamDanmaku_Server.Enum
 {
     public enum StreamMode
     {

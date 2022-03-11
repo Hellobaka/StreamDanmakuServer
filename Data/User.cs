@@ -3,11 +3,11 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SqlSugar;
-using StreamDanmuku_Server.Enum;
-using static StreamDanmuku_Server.SocketIO.Server;
+using StreamDanmaku_Server.Enum;
+using static StreamDanmaku_Server.SocketIO.Server;
 
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
     [JsonObject(MemberSerialization.OptOut)]
     public class User : ICloneable

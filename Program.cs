@@ -1,7 +1,7 @@
-﻿using StreamDanmuku_Server.Data;
+﻿using StreamDanmaku_Server.Data;
 using System;
 
-namespace StreamDanmuku_Server
+namespace StreamDanmaku_Server
 {
     internal class Program
     {

@@ -4,12 +4,12 @@ using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WebSocketSharp.Server;
-using StreamDanmuku_Server.Data;
+using StreamDanmaku_Server.Data;
 using WebSocketSharp;
 using JWT.Exceptions;
-using StreamDanmuku_Server.Enum;
+using StreamDanmaku_Server.Enum;
 
-namespace StreamDanmuku_Server.SocketIO
+namespace StreamDanmaku_Server.SocketIO
 {
     public class Server
     {
@@ -198,11 +198,11 @@ namespace StreamDanmuku_Server.SocketIO
                     case "SwitchStream":
                         Auth_Stream(socket, data, Room.SwitchStream);
                         break;
-                    case "SendDanmuku":
-                        Auth_Stream(socket, data, Room.Danmuku);
+                    case "SendDanmaku":
+                        Auth_Stream(socket, data, Room.Danmaku);
                         break;
-                    case "GetRoomDanmuku":
-                        Auth_Stream(socket, data, Room.GetRoomDanmuku);
+                    case "GetRoomDanmaku":
+                        Auth_Stream(socket, data, Room.GetRoomDanmaku);
                         break;
                     case "ResumeRoom":
                         Auth_Online(socket, data, Room.ResumeRoom);

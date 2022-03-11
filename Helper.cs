@@ -1,14 +1,14 @@
 ﻿using JWT.Algorithms;
 using JWT.Builder;
 using Newtonsoft.Json;
-using StreamDanmuku_Server.Data;
+using StreamDanmaku_Server.Data;
 using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using StreamDanmuku_Server.Enum;
+using StreamDanmaku_Server.Enum;
 
-namespace StreamDanmuku_Server
+namespace StreamDanmaku_Server
 {
     public static class Helper
     {

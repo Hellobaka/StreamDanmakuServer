@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
     internal class Online
     {

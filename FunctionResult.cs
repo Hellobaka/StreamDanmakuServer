@@ -1,4 +1,4 @@
-﻿namespace StreamDanmuku_Server
+﻿namespace StreamDanmaku_Server
 {
     public class FunctionResult
     {

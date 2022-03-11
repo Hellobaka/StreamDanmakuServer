@@ -1,7 +1,7 @@
 ﻿using SqlSugar;
 using System;
 
-namespace StreamDanmuku_Server.Data
+namespace StreamDanmaku_Server.Data
 {
     [SugarTable("Log")]
     internal class RuntimeLog

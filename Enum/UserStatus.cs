@@ -1,4 +1,4 @@
-﻿namespace StreamDanmuku_Server.Enum
+﻿namespace StreamDanmaku_Server.Enum
 {
     /// <summary>
     /// 用户当前状态

@@ -1,6 +1,6 @@
-﻿namespace StreamDanmuku_Server.Enum
+﻿namespace StreamDanmaku_Server.Enum
 {
-    public enum DanmukuPosition
+    public enum DanmakuPosition
     {
         Roll,
         Top,
