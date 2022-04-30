@@ -276,24 +276,50 @@ namespace StreamDanmaku_Server.Data
             // TODO: 登录日志
             RuntimeLog.WriteSystemLog("Login", $"Try Login. Account: {data["account"]}, Pass: {data["password"]}",
                 true);
-            string password = Helper.MD5Encrypt(data["password"].ToString());
-            var db = SQLHelper.GetInstance();
-            var user = db.Queryable<User>().First(x =>
-                (x.Email == data["account"].ToString() || x.NickName == data["account"].ToString()) &&
-                x.PassWord == password);
-            if (user == null)
+            string account = data["account"].ToString();
+            string password = data["password"].ToString();
+
+            switch (socket.UserType)
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
-                RuntimeLog.WriteSystemLog(onName, $"Login Fail. Account: {data["account"]}, Pass: {data["password"]}",
-                    false);
-            }
-            else
-            {
-                user.Status = UserStatus.StandBy;
-                user.WebSocket = socket;
-                // Online.Users.Add(user);
-                socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
-                RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
+                case UserType.Client:
+                    password = Helper.MD5Encrypt(data["password"].ToString());
+                    var db = SQLHelper.GetInstance();
+                    var user = db.Queryable<User>().First(x =>
+                        (x.Email == account || x.NickName == account) &&
+                        x.PassWord == password);
+                    if (user == null)
+                    {
+                        socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
+                        RuntimeLog.WriteSystemLog(onName, $"Login Fail. Account: {data["account"]}, Pass: {data["password"]}",
+                            false);
+                    }
+                    else
+                    {
+                        user.Status = UserStatus.StandBy;
+                        user.WebSocket = socket;
+                        // Online.Users.Add(user);
+                        socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
+                        RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
+                    }
+                    break;
+                case UserType.Admin:
+                        if(string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
+                    {
+                        socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
+                        return;
+                    }
+                    if (Config.GetConfig<string>("AdminAccount") == account 
+                        && Config.GetConfig<string>("AdminPassword") == password)
+                    {
+                        socket.Emit(onName, Helper.SetOK());
+                    }
+                    else
+                    {
+                        socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
+                    }
+                    break;
+                default:
+                    break;
             }
         }
 

@@ -1,4 +1,6 @@
 {
     "ServerPort": 6235,
-    "DBConnectString": "server=localhost;Database=StreamDanmaku;Uid=root;Pwd=asq56747277;SslMode=none;"
+    "DBConnectString": "server=localhost;Database=StreamDanmaku;Uid=root;Pwd=asq56747277;SslMode=none;",
+    "AdminAccount": "admin",
+    "AdminPassword": "admin"
 }

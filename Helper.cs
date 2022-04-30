@@ -48,11 +48,11 @@ namespace StreamDanmaku_Server
         /// <summary>
         /// 毫秒级时间戳
         /// </summary>
-        public static long TimeStampms => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+        public static long TimeStampms => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
         /// <summary>
         /// 秒级时间戳
         /// </summary>
-        public static long TimeStamp => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
+        public static long TimeStamp => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
 
         /// <summary>
         /// 将对象转换为JWT字符串

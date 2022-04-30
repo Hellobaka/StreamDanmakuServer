@@ -8,6 +8,7 @@ using StreamDanmaku_Server.Data;
 using WebSocketSharp;
 using JWT.Exceptions;
 using StreamDanmaku_Server.Enum;
+using System.Net;
 
 namespace StreamDanmaku_Server.SocketIO
 {
@@ -47,6 +48,8 @@ namespace StreamDanmaku_Server.SocketIO
         public class MsgHandler : WebSocketBehavior
         {
             public User CurrentUser { get; set; } = null;
+            public UserType UserType { get; set; } = UserType.Client;
+            public IPAddress ClientIP { get; set; }
 
             protected override void OnMessage(MessageEventArgs e)
             {
@@ -55,7 +58,8 @@ namespace StreamDanmaku_Server.SocketIO
 
             protected override void OnOpen()
             {
-                RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Connected, id={ID}", true);
+                ClientIP = Context.UserEndPoint.Address;
+                RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Connected, id={ID}, ip={ClientIP}", true);
             }
 
             protected override void OnClose(CloseEventArgs e)
@@ -207,6 +211,12 @@ namespace StreamDanmaku_Server.SocketIO
                     case "ResumeRoom":
                         Auth_Online(socket, data, Room.ResumeRoom);
                         break;
+                    case "UploadCapture":
+                        Auth_Stream(socket, data, Room.ResumeRoom);
+                        break;
+                    case "GetCaptures":
+                        Auth_Admin(socket, data, Room.GetCaptures);
+                        break;
                     default:
                         break;
                 }
@@ -243,6 +253,17 @@ namespace StreamDanmaku_Server.SocketIO
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
             }
         }
+        private static void Auth_Admin(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string> func)
+        {
+            string onName = func.Method.Name;
+            if (socket.UserType != UserType.Admin)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is not admin", false);
+                return;
+            }
+            Auth_Non(socket, data, func);
+        }
 
         private static void Auth_Non(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string> func)
         {
@@ -264,59 +285,63 @@ namespace StreamDanmaku_Server.SocketIO
             RuntimeLog.WriteSystemLog(onName, $"Receive {onName} Response, {data.ToString(Formatting.None)}", true);
             try
             {
-                if ((bool) data["loginFlag"])
+                switch (data["type"].ToString())
                 {
-                    try
-                    {
-                        JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName}, {data["jwt"]}", true);
-                        User user = User.GetUserByID((int)json["id"]);
-                        if (user == null)
+                    case "admin":
+                        socket.UserType = UserType.Admin;
+                        socket.Emit(resultName, Helper.SetOK());
+                        break;
+                    case "client":
+                        try
                         {
-                            socket.Emit(resultName, Helper.SetError(ErrorCode.InvalidUser));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
-                        }
-                        else
-                        {
-                            socket.CurrentUser = user;
-                            if (user.LastChange != (DateTime) json["statusChange"])
+                            JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
+                            RuntimeLog.WriteSystemLog(onName, $"{onName}, {data["jwt"]}", true);
+                            User user = User.GetUserByID((int)json["id"]);
+                            if (user == null)
                             {
-                                socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
-                                RuntimeLog.WriteSystemLog(onName, $"{onName} error, lastChange not match", false);
-                                return;
+                                socket.Emit(resultName, Helper.SetError(ErrorCode.InvalidUser));
+                                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
                             }
+                            else
+                            {
+                                socket.CurrentUser = user;
+                                if (user.LastChange != (DateTime)json["statusChange"])
+                                {
+                                    socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
+                                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, lastChange not match", false);
+                                    return;
+                                }
 
-                            if (Online.Users.Contains(user) is false)
-                            {
-                                Online.Users.Add(user);
+                                if (Online.Users.Contains(user) is false)
+                                {
+                                    Online.Users.Add(user);
+                                }
+                                user.WebSocket = socket;
+                                // 保留
+                                Thread.Sleep(300);
+                                socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
+                                RuntimeLog.WriteSystemLog(onName,
+                                    $"{onName} success, user: id={user.Id}, name={user.NickName}", true);
                             }
-                            user.WebSocket = socket;
-                            // 保留
-                            Thread.Sleep(300);
-                            socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
-                            RuntimeLog.WriteSystemLog(onName,
-                                $"{onName} success, user: id={user.Id}, name={user.NickName}", true);
                         }
-                    }
-                    catch (TokenExpiredException)
-                    {
-                        socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, TokenExpired", false);
-                    }
-                    catch (SignatureVerificationException)
-                    {
-                        socket.Emit(resultName, Helper.SetError(ErrorCode.SignInvalid));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, Signature Verification Fail", false);
-                    }
-                    catch (Exception ex)
-                    {
-                        socket.Emit(resultName, Helper.SetError(ErrorCode.UnknownError));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
-                    }
-                }
-                else
-                {
-                    socket.Emit(resultName, Helper.SetOK());
+                        catch (TokenExpiredException)
+                        {
+                            socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
+                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, TokenExpired", false);
+                        }
+                        catch (SignatureVerificationException)
+                        {
+                            socket.Emit(resultName, Helper.SetError(ErrorCode.SignInvalid));
+                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, Signature Verification Fail", false);
+                        }
+                        catch (Exception ex)
+                        {
+                            socket.Emit(resultName, Helper.SetError(ErrorCode.UnknownError));
+                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
+                        }
+                        break;
+                    default:
+                        break;
                 }
             }
             catch (Exception ex)

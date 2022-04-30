@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json.Linq;
+using StreamDanmaku_Server.Data;
 using System;
 using System.IO;
 
@@ -15,7 +16,19 @@ namespace StreamDanmaku_Server
             if (o.ContainsKey(sectionName))
                 return o[sectionName].ToObject<T>();
             else
-                throw new Exception("配置文件不包含此键");
+            {
+                RuntimeLog.WriteSystemLog("Config", $"配置文件不包含 {sectionName} 键", false);
+                if (typeof(T) == typeof(string))
+                    return (T)(object)"";
+                else if (typeof(T) == typeof(int))
+                    return (T)(object)0;
+                else if (typeof(T) == typeof(bool))
+                    return (T)(object)false;
+                else if (typeof(T) == typeof(object))
+                    return (T)(object)new { };
+                else
+                    throw new Exception("无法默认返回");
+            }
         }
     }
 }

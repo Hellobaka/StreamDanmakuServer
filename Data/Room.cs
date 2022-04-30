@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using StreamDanmaku_Server.Enum;
 using static StreamDanmaku_Server.SocketIO.Server;
+using System.IO;
 
 namespace StreamDanmaku_Server.Data
 {
@@ -496,7 +497,7 @@ namespace StreamDanmaku_Server.Data
 
         public static void GetRoomDanmaku(MsgHandler socket, JToken data, string onName, User user)
         {
-            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmakuList.TakeLast(30).ToList()));
+            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmakuList.TakeLast(10).ToList()));
         }
         #endregion
 
@@ -520,6 +521,30 @@ namespace StreamDanmaku_Server.Data
         }
         public static string GetTXSecret(string streamName, string key, long timestamp) =>
             Helper.MD5Encrypt(key + streamName + timestamp.ToString("X"), false).ToLower();
-
+        public List<object> Captures = new();
+        public static void UploadCapture(MsgHandler socket, JToken data, string onName, User user)
+        {
+            var room = user.CurrentRoom;
+            string base64 = data["base64"].ToString();
+            string fileName = $"{Helper.TimeStamp}.png";
+            Directory.CreateDirectory($"Capture\\{room.InviteCode}");
+            File.WriteAllBytes($"{room.InviteCode}\\{fileName}", Convert.FromBase64String(base64));
+            room.Captures.Add(new { timestamp = Helper.TimeStamp, filename = $"Capture\\{room.InviteCode}\\{fileName}" });
+            //RuntimeLog.WriteSystemLog(onName, "", true);
+        }
+        public static void GetCaptures(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"].ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if (room != null)
+            {
+                var arr = room.Captures;
+                socket.Emit(onName, Helper.SetOK("ok", arr));
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+            }
+        }
     }
 }
