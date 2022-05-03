@@ -261,6 +261,9 @@ namespace StreamDanmaku_Server.SocketIO
                     case "GetLogs_Admin":
                         Auth_Admin(socket, data, GetLogs_Admin);
                         break;
+                    case "SendDanmaku_Admin":
+                        Auth_Admin(socket, data, Room.SendDanmaku_Admin);
+                        break;
                     default:
                         break;
                 }

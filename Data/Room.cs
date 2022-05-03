@@ -296,6 +296,31 @@ namespace StreamDanmaku_Server.Data
             }
         }
 
+        public static void SendDanmaku_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"]?.ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if (room == null)
+            {
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
+                return;
+            }
+            else
+            {
+                var danmaku = new Danmaku()
+                {
+                    Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),
+                    Color = "#FFFFFF",
+                    Position = DanmakuPosition.Roll,
+                    SenderUserName = "Admin",
+                    SenderUserID = 0,
+                    Time = Helper.TimeStamp
+                };
+                room.DanmakuList.Add(danmaku);
+                room.RoomBoardCast("OnDanmaku", danmaku);
+            }
+        }
+
         public static void GetRoom_Admin(MsgHandler socket, JToken data, string onName)
         {
             List<object> r = new();
