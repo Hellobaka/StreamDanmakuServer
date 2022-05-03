@@ -7,6 +7,10 @@ using System.Linq;
 using StreamDanmaku_Server.Enum;
 using static StreamDanmaku_Server.SocketIO.Server;
 using System.IO;
+using TencentCloud.Common;
+using TencentCloud.Common.Profile;
+using TencentCloud.Live.V20180801;
+using TencentCloud.Live.V20180801.Models;
 
 namespace StreamDanmaku_Server.Data
 {
@@ -276,6 +280,106 @@ namespace StreamDanmaku_Server.Data
             user.CurrentRoom = null;
             RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} leave", true);
         }
+
+        public static void RemoveMonitor_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"]?.ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if (room == null)
+            {
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
+                return;
+            }
+            else
+            {
+                socket.MonitoredDanmaku = null;
+            }
+        }
+
+        public static void GetRoom_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            List<object> r = new();
+            foreach(var item in Online.Rooms)
+            {
+                r.Add(new
+                {
+                    uid = item.RoomID,
+                    nickname = item.CreatorName,
+                    invite_code = item.InviteCode,
+                    start_time = item.CreateTime,
+                    cap = $"{item.Clients.Count}/{item.Max}"
+                });
+            }
+            socket.Emit(onName, Helper.SetOK("ok", r));
+        }
+
+        public static void GetDanmaku_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"]?.ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if (room == null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
+                return;
+            }
+            else
+            {
+                socket.MonitoredDanmaku = room;
+                socket.Emit(onName, room.DanmakuList);
+            }
+        }
+
+        public static void StopStream_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"]?.ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if(room == null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
+                return;
+            }
+            else
+            {
+                room.CallToDestroy();
+            }
+        }
+
+        public void CallToDestroy()
+        {
+            RoomBoardCast("Admin_CallRoomDestroy", "管理员切断了直播");
+            Clients.ForEach(x => OnLeave(x, null, "OnLeave", x.CurrentUser));
+            try
+            {
+                Credential cred = new()
+                {
+                    SecretId = Config.GetConfig<string>("TXCloud_SecretId"),
+                    SecretKey = Config.GetConfig<string>("TXCloud_SecretKey")
+                };
+
+                ClientProfile clientProfile = new();
+                HttpProfile httpProfile = new();
+                httpProfile.Endpoint = ("live.tencentcloudapi.com");
+                clientProfile.HttpProfile = httpProfile;
+
+                LiveClient client = new(cred, "", clientProfile);
+                DropLiveStreamRequest req = new()
+                {
+                    StreamName = InviteCode,
+                    DomainName = "http://livepull.hellobaka.xyz",
+                    AppName = "StreamDanmaku"
+                };
+                DropLiveStreamResponse resp = client.DropLiveStreamSync(req);
+                Enterable = false;
+                RuntimeLog.WriteSystemLog("CutStream", $"Cut {InviteCode} room success", true);
+            }
+            catch (Exception e)
+            {
+                RuntimeLog.WriteSystemLog("CutStream", $"Cut {InviteCode} room fail, ex: {e.Message}", false);
+            }
+        }
+
         /// <summary>
         /// 令牌传输
         /// </summary>
@@ -390,6 +494,12 @@ namespace StreamDanmaku_Server.Data
             //     socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateRoom));
             //     return;
             // }
+            if(!user.CanStream)
+            {
+                RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: user can not stream", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.UserCanNotStream));
+                return;
+            }
             Room room = new()
             {
                 IsPublic = (bool)data["isPublic"],
@@ -458,6 +568,32 @@ namespace StreamDanmaku_Server.Data
             }
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}",true);
         }
+        public static void GetPullUrl_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            string invite = data["invite_code"]?.ToString();
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
+            if(room==null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+                RuntimeLog.WriteSystemLog(onName, $"Room not exists", false);
+                return;
+            }
+            string pullUrl = string.Empty;
+            switch ((StreamType)(int)data["type"])
+            {
+                case StreamType.WebRTC:
+                    pullUrl = room.GenLivePullURL(false);
+                    socket.Emit(onName, Helper.SetOK("ok", new { server = "webrtc://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl }));
+                    break;
+                case StreamType.RTMP:
+                    pullUrl = room.GenLivePullURL(true);
+                    socket.Emit(onName, Helper.SetOK("ok", new { server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl }));
+                    break;
+                default:
+                    break;
+            }
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}", true);
+        }
         public static void SwitchStream(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.First(x => x.RoomID == user.Id);
@@ -479,6 +615,11 @@ namespace StreamDanmaku_Server.Data
         /// <param name="data">content: 弹幕内容; color: 颜色; position: 弹幕位置;</param>
         public static void Danmaku(MsgHandler socket, JToken data, string onName, User user)
         {
+            if(!user.CanSendDanmaku)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.UserCanNotSendDanmaku));
+                return;
+            }
             var room = user.CurrentRoom;
             var danmaku = new Danmaku()
             {
@@ -491,6 +632,7 @@ namespace StreamDanmaku_Server.Data
             };
             room.DanmakuList.Add(danmaku);
             room.RoomBoardCast("OnDanmaku", danmaku);
+            Online.Admins.Where(x => x.MonitoredDanmaku == room).ToList().ForEach(x => x.Emit("OnDanmaku", danmaku));
             socket.Emit("SendDanmaku", Helper.SetOK("ok", danmaku));
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmaku: {danmaku.Content}",true);
         }

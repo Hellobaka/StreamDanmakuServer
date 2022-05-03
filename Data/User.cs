@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -38,6 +39,12 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         public DateTime CreateTime { get; set; }
         /// <summary>
+        /// 注册日期
+        /// </summary>
+        public DateTime LastLoginTime { get; set; }
+        public bool CanStream { get; set; } = true;
+        public bool CanSendDanmaku { get; set; } = true;
+        /// <summary>
         /// 用户状态
         /// </summary>
         [SugarColumn(IsIgnore = true)]
@@ -50,7 +57,7 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         [SugarColumn(IsIgnore = true)]
         public string XorKey { get; set; }
-        
+
         [SugarColumn(IsIgnore = true)]
         [JsonIgnore]
         public Room CurrentRoom { get; set; }
@@ -125,7 +132,7 @@ namespace StreamDanmaku_Server.Data
         /// <param name="formatError">是否格式错误</param>
         /// <returns>是否通过</returns>
         public static bool VerifyNickName(string nickname, out bool formatError, out bool duplicate)
-        {            
+        {
             formatError = false;
             duplicate = false;
             nickname = nickname.Trim();
@@ -150,7 +157,7 @@ namespace StreamDanmaku_Server.Data
             string email = data["email"].ToString();
             if (Online.Captcha.ContainsKey(email))// 之前申请过，覆盖旧信息
             {
-                if(Online.Captcha[email].ExpiredTimeCount > Captcha.RefreshTime)
+                if (Online.Captcha[email].ExpiredTimeCount > Captcha.RefreshTime)
                     Online.Captcha[email].RemoveCaptcha();
                 else
                 {
@@ -159,7 +166,7 @@ namespace StreamDanmaku_Server.Data
                     return;
                 }
             }
-            Captcha captcha = new(){Email = email, EmailCaptcha = Helper.GenCaptcha(6, false)};
+            Captcha captcha = new() { Email = email, EmailCaptcha = Helper.GenCaptcha(6, false) };
             Online.Captcha.Add(email, captcha);
             RuntimeLog.WriteSystemLog(onName, $"{onName} Success, captcha={captcha}, Email={email}", true);
             socket.Emit(onName, Helper.SetOK());
@@ -227,7 +234,6 @@ namespace StreamDanmaku_Server.Data
         {
             string oldPassword = data["oldPassword"].ToString().ToUpper();
             string newPassword = data["newPassword"].ToString().ToUpper();
-            var db = SQLHelper.GetInstance();
             if (user.PassWord.ToUpper() == oldPassword)
             {
                 user.LastChange = DateTime.Now;
@@ -241,6 +247,137 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, oldPassword not equal to newPassword", false);
             }
         }
+
+        public static void BlockUser_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            int uid = ((int)data["uid"]);
+            var db = SQLHelper.GetInstance();
+            var user = db.Queryable<User>().Where(x => x.Id == uid).First();
+            if (user != null)
+            {
+                user.CanStream = false;
+                user.UpdateUser();
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+
+        public static void ToggleStream_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            using var db = SQLHelper.GetInstance();
+            List<int> err = new();
+            foreach (var item in data["uid"] as JArray)
+            {
+                var user = db.Queryable<User>().Where(x => x.Id == ((int)item)).First();
+                if (user != null)
+                {
+                    user.CanStream = ((bool)data["action"]);
+                    user.UpdateUser();
+                }
+                else
+                {
+                    err.Add((int)item);
+                }
+            }
+            if (err.Count == 0)
+            {
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new{ count=err.Count }));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+
+        public static void EditUser_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            int uid = ((int)data["uid"]);
+            var db = SQLHelper.GetInstance();
+            var user = db.Queryable<User>().Where(x => x.Id == uid).First();
+            if (user != null)
+            {
+                user.NickName = data["nickname"].ToString();
+                user.Email = data["email"].ToString();
+                if (!string.IsNullOrWhiteSpace(data["pwd"].ToString()))
+                {
+                    user.PassWord = data["pwd"].ToString().ToUpper();
+                }
+                user.UpdateUser();
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+
+        public static void ToggleSilent_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            using var db = SQLHelper.GetInstance();
+            List<int> err = new();
+            foreach (var item in data["uid"] as JArray)
+            {
+                var user = db.Queryable<User>().Where(x => x.Id == ((int)item)).First();
+                if (user != null)
+                {
+                    user.CanSendDanmaku = ((bool)data["action"]);
+                    user.UpdateUser();
+                }
+                else
+                {
+                    err.Add((int)item);
+                }
+            }
+            if (err.Count == 0)
+            {
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new { count = err.Count }));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+
+        public static void GetUsers_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            var db = SQLHelper.GetInstance();
+            var users = db.Queryable<User>().ToList();
+            List<object> r = new();
+            users.ForEach(x => r.Add(x.WithoutSecret()));
+            socket.Emit(onName, Helper.SetOK("ok", r));
+            RuntimeLog.WriteSystemLog(onName, $"{onName} success, count={users.Count}", true);
+        }
+
+        public static void UserShutUp_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            int uid = ((int)data["uid"]);
+            var db = SQLHelper.GetInstance();
+            var user = db.Queryable<User>().Where(x => x.Id == uid).First();
+            if (user != null)
+            {
+                user.CanSendDanmaku = false;
+                user.UpdateUser();
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"{onName} success, id={user.Id}", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+            }
+        }
+
         /// <summary>
         /// 修改邮箱
         /// </summary>
@@ -270,13 +407,13 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, email={email} duplicate email", false);
             }
         }
-        
+
         public static void Login(MsgHandler socket, JToken data, string onName)
-        {            
+        {
             // TODO: 登录日志
             RuntimeLog.WriteSystemLog("Login", $"Try Login. Account: {data["account"]}, Pass: {data["password"]}",
                 true);
-            string account = data["account"].ToString();
+            string account = data["account"]?.ToString();
             string password = data["password"].ToString();
 
             switch (socket.UserType)
@@ -297,21 +434,24 @@ namespace StreamDanmaku_Server.Data
                     {
                         user.Status = UserStatus.StandBy;
                         user.WebSocket = socket;
+                        user.LastLoginTime = DateTime.Now;
+                        user.UpdateUser();
                         // Online.Users.Add(user);
                         socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
                         RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
                     }
                     break;
                 case UserType.Admin:
-                        if(string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
+                    if (string.IsNullOrWhiteSpace(password))
                     {
                         socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
                         return;
                     }
-                    if (Config.GetConfig<string>("AdminAccount") == account 
-                        && Config.GetConfig<string>("AdminPassword") == password)
+                    if (Config.GetConfig<string>("AdminPassword") == password)
                     {
-                        socket.Emit(onName, Helper.SetOK());
+                        socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(new User { Id=0 })));
+                        socket.Authed = true;
+                        Online.Admins.Add(socket);
                     }
                     else
                     {
@@ -328,7 +468,7 @@ namespace StreamDanmaku_Server.Data
             string email = data["email"].ToString();
             string nickname = data["nickname"].ToString();
             string password = data["password"].ToString();
-            
+
             var db = SQLHelper.GetInstance();
             VerifyEmail(email, out bool formatError, out bool duplicate);
             if (formatError)
@@ -337,7 +477,7 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog(onName, $"email format wrong", false);
                 return;
             }
-            else if(duplicate)
+            else if (duplicate)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateEmail));
                 RuntimeLog.WriteSystemLog(onName, $"duplicate email", false);
@@ -351,13 +491,13 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog(onName, $"nickname format wrong", false);
                 return;
             }
-            else if(duplicate)
+            else if (duplicate)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateEmail));
                 RuntimeLog.WriteSystemLog(onName, $"duplicate email", false);
                 return;
             }
-            
+
             if (password.Length != 32)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.PasswordFormatError));
@@ -370,6 +510,8 @@ namespace StreamDanmaku_Server.Data
                 NickName = nickname,
                 CreateTime = DateTime.Now,
                 LastChange = DateTime.Now,
+                CanStream = true,
+                CanSendDanmaku = true,
             };
             db.Insertable(u).ExecuteCommand();
             socket.Emit(onName, Helper.SetOK());
@@ -384,7 +526,7 @@ namespace StreamDanmaku_Server.Data
         public object WithoutSecret()
         {
             var c = (User)Clone();
-            return new { c.Id, c.NickName, c.LastChange, c.CreateTime, c.Email, c.Status, c.XorKey };
+            return new { c.Id, c.NickName, c.LastChange, c.CreateTime, c.Email, c.Status, c.CanSendDanmaku, c.CanStream, c.LastLoginTime };
         }
     }
 }

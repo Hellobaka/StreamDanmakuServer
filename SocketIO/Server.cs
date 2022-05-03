@@ -9,6 +9,7 @@ using WebSocketSharp;
 using JWT.Exceptions;
 using StreamDanmaku_Server.Enum;
 using System.Net;
+using System.Collections.Generic;
 
 namespace StreamDanmaku_Server.SocketIO
 {
@@ -43,12 +44,18 @@ namespace StreamDanmaku_Server.SocketIO
             {
                 item.WebSocket.Emit(type, msg);
             }
+            foreach (var item in Online.Admins)
+            {
+                item.Emit(type, msg);
+            }
         }
 
         public class MsgHandler : WebSocketBehavior
         {
             public User CurrentUser { get; set; } = null;
             public UserType UserType { get; set; } = UserType.Client;
+            public bool Authed { get; set; } = false;
+            public Room MonitoredDanmaku { get; set; } = null;
             public IPAddress ClientIP { get; set; }
 
             protected override void OnMessage(MessageEventArgs e)
@@ -64,6 +71,7 @@ namespace StreamDanmaku_Server.SocketIO
 
             protected override void OnClose(CloseEventArgs e)
             {
+                if (Online.Admins.Contains(this)) Online.Admins.Remove(this);
                 if (Online.Users.Contains(CurrentUser))
                 {
                     Online.Users.Remove(CurrentUser);
@@ -73,16 +81,16 @@ namespace StreamDanmaku_Server.SocketIO
                         {
                             case UserStatus.Streaming:
                                 CurrentUser.CurrentRoom.Server = null;
-                                CurrentUser.CurrentRoom.RoomBoardCast("StreamerOffline", new {from = CurrentUser.Id});
+                                CurrentUser.CurrentRoom.RoomBoardCast("StreamerOffline", new { from = CurrentUser.Id });
                                 break;
                             case UserStatus.Client:
                                 CurrentUser.CurrentRoom.Clients.Remove(this);
-                                CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new {from = CurrentUser.Id});
+                                CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new { from = CurrentUser.Id });
                                 break;
                         }
 
                         if (CurrentUser.CurrentRoom.Clients.Count == 0 && CurrentUser.CurrentRoom.Server == null)
-                        {                                
+                        {
                             RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
                             CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
                             BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
@@ -91,13 +99,13 @@ namespace StreamDanmaku_Server.SocketIO
                     }
                 }
 
-                BoardCast("OnlineUserChange", new {count = Online.Users.Count});
+                BoardCast("OnlineUserChange", new { count = Online.Users.Count });
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Disconnected, id={ID}", true);
             }
 
             public void Emit(string type, object msg)
             {
-                Send((new {type, data = new {msg, timestamp = Helper.TimeStampms}}).ToJson());
+                Send((new { type, data = new { msg, timestamp = Helper.TimeStampms } }).ToJson());
             }
 
             private static void RoomBoardCast(int roomID, string type, object msg)
@@ -185,7 +193,7 @@ namespace StreamDanmaku_Server.SocketIO
                         Auth_Stream(socket, data, Room.OnLeave);
                         break;
                     case "OnlineUserCount":
-                        socket.Emit("OnlineUserCount", new {count = Online.Users.Count});
+                        socket.Emit("OnlineUserCount", new { count = Online.Users.Count });
                         break;
                     case "JoinRoom":
                         Auth_Online(socket, data, Room.JoinRoom);
@@ -198,6 +206,9 @@ namespace StreamDanmaku_Server.SocketIO
                         break;
                     case "GetPullUrl":
                         Auth_Stream(socket, data, Room.GetPullUrl);
+                        break;
+                    case "GetPullUrl_Admin":
+                        Auth_Admin(socket, data, Room.GetPullUrl_Admin);
                         break;
                     case "SwitchStream":
                         Auth_Stream(socket, data, Room.SwitchStream);
@@ -217,6 +228,39 @@ namespace StreamDanmaku_Server.SocketIO
                     case "GetCaptures":
                         Auth_Admin(socket, data, Room.GetCaptures);
                         break;
+                    case "StopStream_Admin":
+                        Auth_Admin(socket, data, Room.StopStream_Admin);
+                        break;
+                    case "BlockUser_Admin":
+                        Auth_Admin(socket, data, User.BlockUser_Admin);
+                        break;
+                    case "GetDanmaku_Admin":
+                        Auth_Admin(socket, data, Room.GetDanmaku_Admin);
+                        break;
+                    case "RemoveMonitor_Admin":
+                        Auth_Admin(socket, data, Room.RemoveMonitor_Admin);
+                        break;
+                    case "UserShutUp_Admin":
+                        Auth_Admin(socket, data, User.UserShutUp_Admin);
+                        break;
+                    case "GetRoom_Admin":
+                        Auth_Admin(socket, data, Room.GetRoom_Admin);
+                        break;
+                    case "GetUsers_Admin":
+                        Auth_Admin(socket, data, User.GetUsers_Admin);
+                        break;
+                    case "ToggleSilent_Admin":
+                        Auth_Admin(socket, data, User.ToggleSilent_Admin);
+                        break;
+                    case "ToggleStream_Admin":
+                        Auth_Admin(socket, data, User.ToggleStream_Admin);
+                        break;
+                    case "EditUser_Admin":
+                        Auth_Admin(socket, data, User.EditUser_Admin);
+                        break;
+                    case "GetLogs_Admin":
+                        Auth_Admin(socket, data, GetLogs_Admin);
+                        break;
                     default:
                         break;
                 }
@@ -228,16 +272,47 @@ namespace StreamDanmaku_Server.SocketIO
             }
         }
 
+        private static void GetLogs_Admin(MsgHandler socket, JToken data, string onName)
+        {
+            using var db = SQLHelper.GetInstance();
+            string search = data["search"].ToString();
+            string logType = data["logType"]?.ToString();
+            bool showSystemLog = (bool)data["showSystemLog"];
+            int pageSize = (int)data["itemsPerPage"];
+            if(pageSize == -1)
+            {
+                pageSize = int.MaxValue;
+            }
+            int pageIndex = (int)data["page"];
+            var arr = data["sortBy"] as JArray;
+            string orderBy = string.Empty;
+            bool orderByDesc = false;
+            if (arr.Count != 0)
+            {
+                orderBy = arr[0].ToString();
+                orderByDesc = (bool)(data["sortDesc"] as JArray)[0];
+            }
+            List<RuntimeLog> r = new();
+            r = db.Queryable<RuntimeLog>()
+                .WhereIF(!string.IsNullOrWhiteSpace(logType), x => x.ActionName == logType)
+                .Where(x => showSystemLog || x.Account != "System")
+                .CustomOrderBy(orderBy, orderByDesc).ToList();
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                r = r.Where(x => x.RowID.ToString().Contains(search) || x.Account.Contains(search) || x.ActionName.Contains(search) || x.Action.Contains(search)).ToList();
+            }
+            socket.Emit(onName, Helper.SetOK("ok", new { data = r.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), count = r.Count }));
+        }
         private static void Auth_Stream(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
         {
             Auth_Online(socket, data, func);
         }
         private static void Auth_Online(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
-        {            
+        {
             string onName = func.Method.Name;
             try
             {
-                if (socket.CurrentUser!=null)
+                if (socket.CurrentUser != null)
                 {
                     func.Invoke(socket, data, onName, socket.CurrentUser);
                 }
@@ -260,6 +335,12 @@ namespace StreamDanmaku_Server.SocketIO
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
                 RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is not admin", false);
+                return;
+            }
+            if (socket.Authed is false)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.NoAuth));
+                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is not authed", false);
                 return;
             }
             Auth_Non(socket, data, func);
@@ -289,6 +370,16 @@ namespace StreamDanmaku_Server.SocketIO
                 {
                     case "admin":
                         socket.UserType = UserType.Admin;
+                        string jwt = data["jwt"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(jwt))
+                        {
+                            try
+                            {
+                                Helper.ParseJWT(jwt);
+                                socket.Authed = true;
+                            }
+                            catch (Exception e) { }
+                        }
                         socket.Emit(resultName, Helper.SetOK());
                         break;
                     case "client":
@@ -351,7 +442,7 @@ namespace StreamDanmaku_Server.SocketIO
             }
             finally
             {
-                BoardCast("OnlineUserChange", new {count = Online.Users.Count});
+                BoardCast("OnlineUserChange", new { count = Online.Users.Count });
             }
         }
     }

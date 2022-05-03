@@ -25,5 +25,9 @@
         SignInvalid = 502,
         TokenInvalid = 503,
         UnknownError = -100,
+        UserCanNotStream = 504,
+        UserCanNotSendDanmaku = 505,
+        NoAuth = 506,
+        PartError = 507,
     }
 }

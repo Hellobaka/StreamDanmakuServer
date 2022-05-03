@@ -16,6 +16,9 @@ namespace StreamDanmaku_Server
                     case "clearroom":
                         Online.Rooms.Clear();
                         break;
+                    case "pull":
+                        Console.WriteLine(new Room().GenLivePullURL());
+                        break;
                     default:
                         break;
                 }
