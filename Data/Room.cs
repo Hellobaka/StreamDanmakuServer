@@ -73,26 +73,11 @@ namespace StreamDanmaku_Server.Data
         /// 房间人数
         /// </summary>
         public int ClientCount => Clients.Count;
-
-        /// <summary>
-        /// 拉流地址
-        /// </summary>
-        public string StreamPullURL { get; set; }
-
-        /// <summary>
-        /// 推流地址
-        /// </summary>
-        public string StreamPushURL { get; set; }
-
+        
         /// <summary>
         /// 房间是否可加入
         /// </summary>
         public bool Enterable { get; set; }
-
-        /// <summary>
-        /// 直播类别
-        /// </summary>
-        public StreamMode Mode { get; set; } = StreamMode.QuickLive;
 
         /// <summary>
         /// 房主User对象
@@ -117,7 +102,7 @@ namespace StreamDanmaku_Server.Data
             return new
             {
                 c.Title, c.RoomID, c.CreatorName, c.PasswordNeeded, c.IsPublic, c.Max, c.CreateTime, c.ClientCount,
-                c.InviteCode, c.Mode
+                c.InviteCode
             };
         }
 
@@ -466,100 +451,7 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog("CutStream", $"Cut {InviteCode} room fail, ex: {e.Message}", false);
             }
         }
-
-        /// <summary>
-        /// 令牌传输(WebRTC用
-        /// </summary>
-        /// <param name="socket">直播 WebSocket 连接</param>
-        /// <param name="data">candidate: 令牌信息; to: 目标ID, 一般用于服务端向观众</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
-        public static void OnCandidate(MsgHandler socket, JToken data, string onName, User user)
-        {
-            var server = user.CurrentRoom.Server;
-            switch (user.Status)
-            {
-                case UserStatus.Client: // 观众向服务端传输令牌
-                {
-                    if (user.CurrentRoom != null)
-                    {
-                        server?.WebSocket.Emit(onName,
-                            new {data = data["candidate"].ToObject<object>(), from = user.Id});
-                        RuntimeLog.WriteSystemLog(onName,
-                            $"{onName}, client {user.NickName} to server {server?.NickName} Candidate", true);
-                    }
-                    else
-                    {
-                        Console.WriteLine("room is null");
-                    }
-
-                    break;
-                }
-                case UserStatus.Streaming: // 服务端向观众传输令牌
-                {
-                    var client = Online.Users.FirstOrDefault(x => x.Id == (int) data["to"]);
-                    client?.WebSocket.Emit(onName, new {data = data["candidate"].ToObject<object>(), from = user.Id});
-                    RuntimeLog.WriteSystemLog(onName,
-                        $"{onName}, server {user.NickName} to client {client?.NickName} Candidate", true);
-                    break;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Answer信息传输(WebRTC用
-        /// </summary>
-        /// <param name="socket">直播 WebSocket 连接</param>
-        /// <param name="data">answer: Answer信息</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
-        public static void OnAnswer(MsgHandler socket, JToken data, string onName, User user)
-        {
-            // Client => Server: createAnswer
-            var server = user.CurrentRoom.Server;
-            server.WebSocket.Emit(onName, new {data = data["answer"].ToObject<object>(), from = user.Id});
-            RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} to server {server.NickName} answer",
-                true);
-        }
-
-        /// <summary>
-        /// 传输Offer信息(WebRTC用
-        /// </summary>
-        /// <param name="socket">直播 WebSocket 连接</param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
-        public static void OnOffer(MsgHandler socket, JToken data, string onName, User user)
-        {
-            // Client => Server: open request
-            // Server => Client: createOffer
-            switch (user.Status)
-            {
-                case UserStatus.Client:
-                {
-                    if (user.CurrentRoom != null)
-                    {
-                        // 拉流端发送offer请求，之后服务器将请求转发给推流端，并携带此用户的ID
-                        var server = user.CurrentRoom.Server;
-                        server.WebSocket.Emit(onName, new {data = data["offer"].ToString(), from = user.Id});
-                        RuntimeLog.WriteSystemLog(onName,
-                            $"{onName}, client {user.NickName} to server {server.NickName} offer", true);
-                    }
-
-                    break;
-                }
-                case UserStatus.Streaming:
-                {
-                    // 推流端应当在应答中添加ID
-                    var client = Online.Users.FirstOrDefault(x => x.Id == ((int) data["to"]));
-                    client?.WebSocket.Emit(onName, new {data = data["offer"].ToObject<object>(), from = user.Id});
-                    RuntimeLog.WriteSystemLog(onName,
-                        $"{onName}, server {user.NickName} to client {client?.NickName} offer", true);
-                    break;
-                }
-            }
-        }
-
+        
         /// <summary>
         /// 已加入房间
         /// </summary>
@@ -621,8 +513,7 @@ namespace StreamDanmaku_Server.Data
                 Password = data["password"].ToString(),
                 RoomID = user.Id,
                 CreateTime = DateTime.Now,
-                InviteCode = Helper.GenCaptcha(6, true),
-                Mode = (StreamMode) (int) data["mode"]
+                InviteCode = Helper.GenCaptcha(6, true)
             };
             if (room.Max is < 2 or > 51) // 高级
             {
@@ -693,22 +584,10 @@ namespace StreamDanmaku_Server.Data
         {
             //TODO: 清理WebRTC代码
             var room = user.CurrentRoom;
-            string pullUrl = string.Empty;
-            switch ((StreamType) (int) data["type"])
-            {
-                case StreamType.WebRTC:
-                    pullUrl = room.GenLivePullURL(false);
-                    socket.Emit(onName,
-                        Helper.SetOK("ok",
-                            new {server = "webrtc://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
-                    break;
-                case StreamType.RTMP:
-                    pullUrl = room.GenLivePullURL(true);
-                    socket.Emit(onName,
-                        Helper.SetOK("ok",
-                            new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
-                    break;
-            }
+            string pullUrl = room.GenLivePullURL(true);
+            socket.Emit(onName,
+                Helper.SetOK("ok",
+                    new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
 
             RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}", true);
         }

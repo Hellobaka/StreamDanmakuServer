@@ -180,15 +180,6 @@ namespace StreamDanmaku_Server.SocketIO
                     case "VerifyRoomPassword":
                         Auth_Online(socket, data, Room.VerifyRoomPassword);
                         break;
-                    case "Offer":
-                        Auth_Stream(socket, data, Room.OnOffer);
-                        break;
-                    case "Answer":
-                        Auth_Stream(socket, data, Room.OnAnswer);
-                        break;
-                    case "Candidate":
-                        Auth_Stream(socket, data, Room.OnCandidate);
-                        break;
                     case "Leave":
                         Auth_Stream(socket, data, Room.OnLeave);
                         break;
