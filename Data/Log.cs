@@ -18,9 +18,13 @@ namespace StreamDanmaku_Server.Data
         {
             WriteLog("System", type, content, status, DateTime.Now);
         }
-        public static void WriteUserLog(string origin, string type, string content, bool status)
+        public static void WriteUserLog(User user, string type, string content, bool status)
         {
-            WriteLog(origin, type, content, status, DateTime.Now);
+            WriteLog(user.Email, type, content, status, DateTime.Now);
+        }
+        public static void WriteUserLog(string user, string type, string content, bool status)
+        {
+            WriteLog(user, type, content, status, DateTime.Now);
         }
         public static void WriteLog(string origin, string type, string content, bool status, DateTime time)
         {

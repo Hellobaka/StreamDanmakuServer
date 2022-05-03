@@ -73,7 +73,7 @@ namespace StreamDanmaku_Server.Data
         /// 房间人数
         /// </summary>
         public int ClientCount => Clients.Count;
-        
+
         /// <summary>
         /// 房间是否可加入
         /// </summary>
@@ -113,20 +113,20 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">直播 WebSocket 连接</param>
         /// <param name="data">不读取参数</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void RoomInfo(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.Find(x => x.RoomID == user.Id);
             if (room != null)
             {
                 socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} success, RoomID={room.RoomID}", true);
+                RuntimeLog.WriteUserLog(user, onName, $"拉取房间信息成功，{GetRoomLogText(room)}", true);
             }
             else
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid", false);
+                RuntimeLog.WriteUserLog(user, onName, $"拉取房间信息失败，房间ID={user.Id}，房间信息为空", false);
             }
         }
 
@@ -135,8 +135,8 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">普通在线 WebSocket 连接</param>
         /// <param name="data">query: 房间ID或邀请码</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void JoinRoom(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.Find(x =>
@@ -144,12 +144,12 @@ namespace StreamDanmaku_Server.Data
             if (room is {Enterable: true}) // 通过邀请码或ID查询到了房间, 返回房间ID以及密码要求
             {
                 socket.Emit(onName, Helper.SetOK("ok", new {id = room.RoomID, passwordNeeded = room.PasswordNeeded}));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} success, RoomID={data["id"]}", true);
+                RuntimeLog.WriteUserLog(user, onName, $"房间加入成功，{GetRoomLogText(room)}", true);
             }
             else // 检索失败
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExistOrUnenterable));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid or unenterable", false);
+                RuntimeLog.WriteUserLog(user, onName, $"房间加入失败，筛选条件={data["query"]}，房间不存在或无法加入", false);
             }
         }
 
@@ -158,38 +158,30 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">普通在线 WebSocket 连接</param>
         /// <param name="data">id: 要加入的房间ID; password: 需要的时候再传密码</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void EnterRoom(MsgHandler socket, JToken data, string onName, User user)
         {
-            var room = Online.Rooms.Find(x => x.RoomID == (int) data["id"]);
-            if (room != null)
+            var room = GetRoomByIDOrInviteCode(data["id"].ToString(), socket, onName, user);
+            if (room == null) return;
+            if (room.Password == data["password"].ToString().Trim())
             {
-                if (room.Password == data["password"].ToString().Trim())
+                if (room.Max > room.ClientCount)
                 {
-                    if (room.Max > room.ClientCount)
-                    {
-                        socket.Emit(onName, Helper.SetOK());
-                        user.Status = UserStatus.Client;
-
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
-                    }
-                    else // 超出房间规定最大人数
-                    {
-                        socket.Emit(onName, Helper.SetError(ErrorCode.RoomFull));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is full", false);
-                    }
+                    socket.Emit(onName, Helper.SetOK());
+                    user.Status = UserStatus.Client;
+                    RuntimeLog.WriteUserLog(user, onName, $"加入房间判定成功，{GetRoomLogText(room)}", true);
                 }
-                else
+                else // 超出房间规定最大人数
                 {
-                    socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, password is wrong", false);
+                    socket.Emit(onName, Helper.SetError(ErrorCode.RoomFull));
+                    RuntimeLog.WriteUserLog(user, onName, $"加入房间判定失败，{GetRoomLogText(room)}，房间已满", false);
                 }
             }
-            else
+            else // 密码错误
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
+                RuntimeLog.WriteUserLog(user, onName, $"加入房间判定失败，{GetRoomLogText(room)}，密码错误", false);
             }
         }
 
@@ -203,7 +195,7 @@ namespace StreamDanmaku_Server.Data
         public static void RoomList(MsgHandler socket, JToken data, string onName, User user)
         {
             socket.Emit(onName, Helper.SetOK("ok", Online.Rooms.Where(x => x.IsPublic && x.Enterable).ToList()));
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success", true);
+            RuntimeLog.WriteUserLog(user, onName, $"拉取公开房间列表成功", true);
         }
 
         /// <summary>
@@ -211,44 +203,40 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">普通在线 WebSocket 连接</param>
         /// <param name="data">id: 待验证房间ID; password: 待验证密码</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void VerifyRoomPassword(MsgHandler socket, JToken data, string onName, User user)
         {
-            var room = Online.Rooms.Find(x => x.RoomID == (int) data["id"]);
-            if (room != null)
-            {
-                if (room.Enterable is false)
-                {
-                    socket.Emit(onName, Helper.SetError(ErrorCode.RoomUnenterable));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, enterable is false", false);
-                    return;
-                }
+            var room = GetRoomByIDOrInviteCode(data["id"].ToString(), socket, onName, user);
+            if (room == null) return;
 
-                if (room.PasswordNeeded)
+            if (room.Enterable is false)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomUnenterable));
+                RuntimeLog.WriteUserLog(user, onName, $"验证房间密码失败，{GetRoomLogText(room)}，房间不可加入", false);
+                return;
+            }
+
+            if (room.PasswordNeeded)
+            {
+                if (room.Password == data["password"].ToString().Trim())
                 {
-                    if (room.Password == data["password"].ToString().Trim())
-                    {
-                        socket.Emit(onName, Helper.SetOK());
-                        RuntimeLog.WriteSystemLog(onName,
-                            $"{onName} success, RoomID={data["id"]}, password={data["password"]}", true);
-                    }
-                    else
-                    {
-                        socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
-                        RuntimeLog.WriteSystemLog(onName, $"{onName} error, password is incorrect", false);
-                    }
+                    socket.Emit(onName, Helper.SetOK());
+                    RuntimeLog.WriteUserLog(user, onName, $"验证房间密码成功，{GetRoomLogText(room)}，使用密码={data["password"]}",
+                        true);
                 }
-                else // 验证了不需要密码的房间
+                else
                 {
-                    socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, verify non password room", false);
+                    socket.Emit(onName, Helper.SetError(ErrorCode.WrongRoomPassword));
+                    RuntimeLog.WriteUserLog(user, onName,
+                        $"验证房间密码失败，{GetRoomLogText(room)}，使用密码={data["password"]}，密码错误", false);
                 }
             }
-            else
+            else // 验证了不需要密码的房间
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is invalid", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
+                RuntimeLog.WriteUserLog(user, onName,
+                    $"验证房间密码失败，{GetRoomLogText(room)}，使用密码={data["password"]}，房间不需要密码验证", false);
             }
         }
 
@@ -257,10 +245,11 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">直播 WebSocket 连接</param>
         /// <param name="data">未使用字段</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void OnLeave(MsgHandler socket, JToken data, string onName, User user)
         {
+            // 
             switch (user.Status)
             {
                 case UserStatus.Client:
@@ -272,7 +261,7 @@ namespace StreamDanmaku_Server.Data
                         user.CurrentRoom.RoomBoardCast("OnLeave", new {from = user.Id});
                         if (user.CurrentRoom.Clients.Count == 0 && user.CurrentRoom.Server == null)
                         {
-                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={user.Id}", true);
+                            RuntimeLog.WriteSystemLog("RoomVanish", $"房间销毁成功，{GetRoomLogText(user.CurrentRoom)}", true);
                             user.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = user.Id});
                             BoardCast("RoomRemove", new {roomID = user.Id});
                             Online.Rooms.Remove(user.CurrentRoom);
@@ -282,74 +271,63 @@ namespace StreamDanmaku_Server.Data
                     break;
                 }
                 case UserStatus.Streaming:
-                    RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={user.Id}", true);
+                    // 房主主动离开直播间，应当销毁直播间
                     user.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = user.Id});
                     BoardCast("RoomRemove", new {roomID = user.Id});
                     Online.Rooms.Remove(user.CurrentRoom);
                     user.Status = UserStatus.StandBy;
+                    RuntimeLog.WriteSystemLog("RoomVanish", $"房间销毁成功，{GetRoomLogText(user.CurrentRoom)}", true);
                     break;
             }
 
+            RuntimeLog.WriteUserLog(user, onName, $"离开房间成功，用户ID={user.Id}，{GetRoomLogText(user.CurrentRoom)}", true);
             user.CurrentRoom = null;
-            RuntimeLog.WriteSystemLog(onName, $"{onName}, client {user.NickName} leave", true);
         }
 
         /// <summary>
         /// 后台弹幕监视取消
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">invite_code: 需要操作的房间邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void RemoveMonitor_Admin(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"]?.ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room == null)
-            {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
-            }
-            else
-            {
-                socket.MonitoredDanmaku = null;
-            }
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin: true);
+            if (room == null) return;
+            socket.MonitoredDanmaku = null;
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台弹幕监视取消，{GetRoomLogText(room)}", true);
         }
 
         /// <summary>
         /// 后台发送弹幕
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">invite_code: 需要操作的房间邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void SendDanmaku_Admin(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"]?.ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room == null)
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin: true);
+            if (room == null) return;
+            var danmaku = new Danmaku()
             {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
-            }
-            else
-            {
-                var danmaku = new Danmaku()
-                {
-                    Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),
-                    Color = "#FFFFFF",
-                    Position = DanmakuPosition.Roll,
-                    SenderUserName = "Admin",
-                    SenderUserID = 0,
-                    Time = Helper.TimeStamp
-                };
-                room.DanmakuList.Add(danmaku);
-                room.RoomBoardCast("OnDanmaku", danmaku);
-            }
+                Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),
+                Color = "#FFFFFF",
+                Position = DanmakuPosition.Roll,
+                SenderUserName = "Admin",
+                SenderUserID = 0,
+                Time = Helper.TimeStamp
+            };
+            room.DanmakuList.Add(danmaku);
+            room.RoomBoardCast("OnDanmaku", danmaku);
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台发送弹幕，{GetRoomLogText(room)}，内容={data["content"]}", true);
         }
 
         /// <summary>
         /// 后台拉取正在直播房间列表
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">未使用字段</param>
+        /// <param name="onName">操作名称</param>
         public static void GetRoom_Admin(MsgHandler socket, JToken data, string onName)
         {
             List<object> r = new();
@@ -366,49 +344,37 @@ namespace StreamDanmaku_Server.Data
             }
 
             socket.Emit(onName, Helper.SetOK("ok", r));
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取正在直播房间列表成功", true);
         }
 
         /// <summary>
         /// 后台拉取房间所有弹幕 并启用监视
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">invite_code: 需要操作的房间邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void GetDanmaku_Admin(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"]?.ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room == null)
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
-            }
-            else
-            {
-                socket.MonitoredDanmaku = room;
-                socket.Emit(onName, room.DanmakuList);
-            }
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin: true);
+            if (room == null) return;
+
+            socket.MonitoredDanmaku = room;
+            socket.Emit(onName, room.DanmakuList);
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取房间弹幕列表成功，{GetRoomLogText(room)}", true);
         }
 
         /// <summary>
         /// 后台切断直播
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">invite_code: 需要操作的房间邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void StopStream_Admin(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"]?.ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room == null)
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, room is null", false);
-            }
-            else
-            {
-                room.CallToDestroy();
-            }
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin: true);
+            if (room == null) return;
+            room.CallToDestroy();
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台房间断流成功，{GetRoomLogText(room)}", true);
         }
 
         /// <summary>
@@ -451,21 +417,21 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteSystemLog("CutStream", $"Cut {InviteCode} room fail, ex: {e.Message}", false);
             }
         }
-        
+
         /// <summary>
         /// 已加入房间
         /// </summary>
         /// <param name="socket">直播 WebSocket 连接</param>
         /// <param name="data">id: 房间ID; </param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void RoomEntered(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.Find(x => x.RoomID == (int) data["id"]);
             if (room is not {Enterable: true})
-            {
-                RuntimeLog.WriteSystemLog(onName, $"{onName}, room[{(int) data["id"]}] is null", false);
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+            {            
+                RuntimeLog.WriteUserLog(user, onName, $"加入房间失败，筛选条件={data["id"]}，房间不存在或不可加入", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExistOrUnenterable));
                 return;
             }
 
@@ -475,8 +441,7 @@ namespace StreamDanmaku_Server.Data
             {
                 room.Clients.Add(socket);
             }
-
-            RuntimeLog.WriteSystemLog(onName, $"{onName}, user {user.NickName} enter room {room.RoomID}", true);
+            RuntimeLog.WriteUserLog(user, onName, $"加入房间成功，{GetRoomLogText(room)}", true);
             socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
             room.RoomBoardCast("OnEnter", user.Id);
         }
@@ -486,20 +451,20 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         /// <param name="socket">普通在线 WebSocket 连接</param>
         /// <param name="data">Room表单</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void CreateRoom(MsgHandler socket, JToken data, string onName, User user)
         {
             if (Online.Rooms.Any(x => x.RoomID == user.Id))
             {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: duplicate user room", false);
+                RuntimeLog.WriteUserLog(user, onName, $"创建房间失败，当前用户已经创建了一个房间", false);
                 socket.Emit(onName, Helper.SetError(ErrorCode.DuplicateRoom));
                 return;
             }
 
             if (!user.CanStream)
             {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: user can not stream", false);
+                RuntimeLog.WriteUserLog(user, onName, $"创建房间失败，当前用户被禁播", false);
                 socket.Emit(onName, Helper.SetError(ErrorCode.UserCanNotStream));
                 return;
             }
@@ -517,7 +482,7 @@ namespace StreamDanmaku_Server.Data
             };
             if (room.Max is < 2 or > 51) // 高级
             {
-                RuntimeLog.WriteSystemLog(onName, $"{onName} fail, msg: invalid args", false);
+                RuntimeLog.WriteUserLog(user, onName, $"创建房间失败，非法参数", false);
                 socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
                 return;
             }
@@ -525,9 +490,7 @@ namespace StreamDanmaku_Server.Data
             user.Status = UserStatus.Streaming;
             user.CurrentRoom = room;
             room.Server = user;
-            RuntimeLog.WriteSystemLog(onName,
-                $"{onName} success, userID: {room.RoomID}, password: {room.Password}, title: {room.Title}, max: {room.Max}",
-                true);
+            RuntimeLog.WriteUserLog(user, onName, $"创建房间成功，用户ID={room.RoomID}, 密码={room.Password}, 标题={room.Title}, 房间容量={room.Max}", true);
             Online.Rooms.Add(room);
             socket.Emit(onName, Helper.SetOK());
         }
@@ -535,94 +498,84 @@ namespace StreamDanmaku_Server.Data
         /// <summary>
         /// 主播掉线重连
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">普通在线 WebSocket 连接</param>
+        /// <param name="data">未使用字段</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void ResumeRoom(MsgHandler socket, JToken data, string onName, User user)
         {
-            var room = Online.Rooms.Find(x => x.RoomID == user.Id);
-            if (room != null)
-            {
-                user.Status = UserStatus.Streaming;
-                user.CurrentRoom = room;
-                room.Server = user;
-                socket.Emit(onName, Helper.SetOK());
-                room.RoomBoardCast("StreamerReConnect", "");
-            }
-            else
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-            }
+            var room = GetRoomByIDOrInviteCode(user.Id.ToString(), socket, onName, user);
+            if (room == null) return;
+            user.Status = UserStatus.Streaming;
+            user.CurrentRoom = room;
+            room.Server = user;
+            socket.Emit(onName, Helper.SetOK());
+            RuntimeLog.WriteUserLog(user, onName, $"主播恢复直播成功，{GetRoomLogText(room)}", true);
+            room.RoomBoardCast("StreamerReConnect", "");
         }
 
         /// <summary>
         /// 获取推流URL
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
+        /// <param name="data">未使用字段</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void GetPushUrl(MsgHandler socket, JToken data, string onName, User user)
         {
-            var room = Online.Rooms.First(x => x.RoomID == user.Id);
+            var room = GetRoomByIDOrInviteCode(user.Id.ToString(), socket, onName, user);
+            if (room == null) return;
             string pushUrl = room.GenLivePushURL();
             // 似乎应当写进配置内
             socket.Emit(onName,
                 Helper.SetOK("ok", new {server = "rtmp://livepush.hellobaka.xyz/StreamDanmaku/", key = pushUrl}));
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPushUrl: {pushUrl}", true);
+            RuntimeLog.WriteUserLog(user, onName, $"获取推流URL成功，{GetRoomLogText(room)}，URL={pushUrl}", true);
         }
 
         /// <summary>
         /// 获取拉流URL
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
+        /// <param name="data">未使用字段</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void GetPullUrl(MsgHandler socket, JToken data, string onName, User user)
         {
-            //TODO: 清理WebRTC代码
             var room = user.CurrentRoom;
             string pullUrl = room.GenLivePullURL(true);
             socket.Emit(onName,
                 Helper.SetOK("ok",
                     new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
 
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}", true);
+            RuntimeLog.WriteUserLog(user, onName, $"获取拉流URL成功，{GetRoomLogText(room)}，URL={pullUrl}", true);
         }
 
         /// <summary>
         /// 后台使用邀请码获取拉流URL
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">invite_code: 需要操作的房间邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void GetPullUrl_Admin(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"]?.ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room == null)
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-                RuntimeLog.WriteSystemLog(onName, $"Room not exists", false);
-                return;
-            }
-
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin:true);
+            if (room == null) return;
+            
             string pullUrl = room.GenLivePullURL(true);
             socket.Emit(onName,
                 Helper.SetOK("ok",
                     new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
 
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, genPullUrl: {pullUrl}", true);
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台获取拉流URL成功，{GetRoomLogText(room)}，URL={pullUrl}", true);
         }
+
         /// <summary>
         /// 切换直播可用状态
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
+        /// <param name="data">flag: 想要切换到的状态</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void SwitchStream(MsgHandler socket, JToken data, string onName, User user)
         {
             var room = Online.Rooms.First(x => x.RoomID == user.Id);
@@ -637,15 +590,16 @@ namespace StreamDanmaku_Server.Data
             }
 
             socket.Emit(onName, Helper.SetOK());
+            RuntimeLog.WriteUserLog(user, onName, $"切换直播可用状态成功，{GetRoomLogText(room)}，状态={room.Enterable}", true);
         }
 
         /// <summary>
         /// 发送弹幕
         /// </summary>
-        /// <param name="socket">直播连接</param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
         /// <param name="data">content: 弹幕内容; color: 颜色; position: 弹幕位置;</param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void Danmaku(MsgHandler socket, JToken data, string onName, User user)
         {
             if (!user.CanSendDanmaku)
@@ -668,31 +622,35 @@ namespace StreamDanmaku_Server.Data
             room.RoomBoardCast("OnDanmaku", danmaku);
             Online.Admins.Where(x => x.MonitoredDanmaku == room).ToList().ForEach(x => x.Emit("OnDanmaku", danmaku));
             socket.Emit("SendDanmaku", Helper.SetOK("ok", danmaku));
-            RuntimeLog.WriteSystemLog(onName, $"{onName} success, danmaku: {danmaku.Content}", true);
+            RuntimeLog.WriteUserLog(user, onName, $"发送弹幕成功，{GetRoomLogText(room)}，弹幕内容={danmaku.Content}", true);
         }
+
         /// <summary>
         /// 获取直播最后10条弹幕
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
+        /// <param name="data">未使用字段</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void GetRoomDanmaku(MsgHandler socket, JToken data, string onName, User user)
         {
             //TODO: 拉取条数可配置
             socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmakuList.TakeLast(10).ToList()));
+            RuntimeLog.WriteUserLog(user, onName, $"获取房间历史弹幕成功，{GetRoomLogText(user.CurrentRoom)}", true);
         }
+
         /// <summary>
         /// 缩略图
         /// </summary>
         public List<object> Captures = new();
+
         /// <summary>
         /// 上传缩略图
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
-        /// <param name="user"></param>
+        /// <param name="socket">直播在线 WebSocket 连接</param>
+        /// <param name="data">base64: 图片</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
         public static void UploadCapture(MsgHandler socket, JToken data, string onName, User user)
         {
             //TODO: 文件夹使网页可读取, 日志
@@ -702,40 +660,38 @@ namespace StreamDanmaku_Server.Data
             Directory.CreateDirectory($"Capture\\{room.InviteCode}");
             File.WriteAllBytes($"{room.InviteCode}\\{fileName}", Convert.FromBase64String(base64));
             room.Captures.Add(new {timestamp = Helper.TimeStamp, filename = $"Capture\\{room.InviteCode}\\{fileName}"});
-            RuntimeLog.WriteSystemLog(onName, "", true);
+            RuntimeLog.WriteUserLog(user, onName, $"缩略图上传成功，{GetRoomLogText(user.CurrentRoom)}", true);
         }
+
         /// <summary>
         /// 获取直播间缩略图
         /// </summary>
-        /// <param name="socket"></param>
-        /// <param name="data"></param>
-        /// <param name="onName"></param>
+        /// <param name="socket">后台在线 WebSocket 连接</param>
+        /// <param name="data">invite_code: 操作房间的邀请码</param>
+        /// <param name="onName">操作名称</param>
         public static void GetCaptures(MsgHandler socket, JToken data, string onName)
         {
-            string invite = data["invite_code"].ToString();
-            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == invite);
-            if (room != null)
-            {
-                var arr = room.Captures;
-                socket.Emit(onName, Helper.SetOK("ok", arr));
-            }
-            else
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
-            }
+            var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin:true);
+            if (room == null) return;
+            var arr = room.Captures;
+            socket.Emit(onName, Helper.SetOK("ok", arr));
+            RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取缩略图成功，{GetRoomLogText(room)}", true);
         }
 
         #endregion
 
         #region 腾讯云直播相关
+
         /// <summary>
         /// 推流Key
         /// </summary>
         private string pushKey = Config.GetConfig<string>("Live_PushKey");
+
         /// <summary>
         /// 拉流Key
         /// </summary>
         private string pullKey = Config.GetConfig<string>("Live_PullKey");
+
         /// <summary>
         /// 生成推流URL的参数部分
         /// </summary>
@@ -745,6 +701,7 @@ namespace StreamDanmaku_Server.Data
             long timestamp = Helper.TimeStamp + 60 * 60 * 12;
             return $"{InviteCode}?txSecret={GetTXSecret(InviteCode, pushKey, timestamp)}&txTime={timestamp:X}";
         }
+
         /// <summary>
         /// 生成拉流URL的参数部分
         /// </summary>
@@ -756,6 +713,7 @@ namespace StreamDanmaku_Server.Data
             return
                 $"{InviteCode}{(flv ? ".flv" : "")}?txSecret={GetTXSecret(InviteCode, pullKey, timestamp)}&txTime={timestamp:X}";
         }
+
         /// <summary>
         /// 计算TXSecret
         /// </summary>
@@ -765,8 +723,9 @@ namespace StreamDanmaku_Server.Data
         /// <returns></returns>
         public static string GetTXSecret(string streamName, string key, long timestamp) =>
             Helper.MD5Encrypt(key + streamName + timestamp.ToString("X"), false).ToLower();
-        
+
         #endregion
+
         /// <summary>
         /// 房间内广播, 包括主播
         /// </summary>
@@ -776,6 +735,30 @@ namespace StreamDanmaku_Server.Data
         {
             Clients.ForEach(x => x.Emit(type, msg));
             Server?.WebSocket.Emit(type, msg);
+        }
+
+        private static string GetRoomLogText(Room room) => $"房间ID={room.RoomID}，邀请码={room.InviteCode}";
+
+        private static Room GetRoomByIDOrInviteCode(string query, MsgHandler socket, string onName, User user = null,
+            bool isAdmin = false)
+        {
+            var room = Online.Rooms.FirstOrDefault(x => x.InviteCode == query || x.RoomID.ToString() == query);
+            if (room == null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.RoomNotExist));
+                if (user == null) RuntimeLog.WriteSystemLog(onName, $"房间拉取失败，筛选条件={query}", false);
+                else
+                {
+                    if (isAdmin) RuntimeLog.WriteUserLog("Admin", onName, $"房间拉取失败，筛选条件={query}", false);
+                    else RuntimeLog.WriteUserLog(user, onName, $"房间拉取失败，筛选条件={query}", false);
+                }
+            }
+            else
+            {
+                return room;
+            }
+
+            return null;
         }
     }
 }

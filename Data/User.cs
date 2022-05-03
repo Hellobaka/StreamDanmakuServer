@@ -438,7 +438,7 @@ namespace StreamDanmaku_Server.Data
                         user.UpdateUser();
                         // Online.Users.Add(user);
                         socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
-                        RuntimeLog.WriteUserLog(user.Email, onName, "Login Success.", true);
+                        RuntimeLog.WriteUserLog(user, onName, "Login Success.", true);
                     }
                     break;
                 case UserType.Admin:
