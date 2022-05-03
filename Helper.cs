@@ -7,6 +7,9 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using StreamDanmaku_Server.Enum;
+using System.Collections.Generic;
+using System.Linq;
+using SqlSugar;
 
 namespace StreamDanmaku_Server
 {
@@ -26,10 +29,10 @@ namespace StreamDanmaku_Server
         }
 
         public static FunctionResult SetOK(string msg = "ok", object obj = null) =>
-            new() {code = 200, msg = msg, data = obj};
+            new() { code = 200, msg = msg, data = obj };
 
         public static FunctionResult SetError(ErrorCode code, string msg = "err", object obj = null) =>
-            new() {code = (int)code, msg = ErrorCodeDict.Content[(int)code], data = obj};
+            new() { code = (int)code, msg = ErrorCodeDict.Content[(int)code], data = obj };
 
         /// <summary>
         /// 扩展方法 快捷调用对象序列化
@@ -48,11 +51,11 @@ namespace StreamDanmaku_Server
         /// <summary>
         /// 毫秒级时间戳
         /// </summary>
-        public static long TimeStampms => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+        public static long TimeStampms => (long)(DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
         /// <summary>
         /// 秒级时间戳
         /// </summary>
-        public static long TimeStamp => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
+        public static long TimeStamp => (long)(DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
 
         /// <summary>
         /// 将对象转换为JWT字符串
@@ -88,12 +91,13 @@ namespace StreamDanmaku_Server
             {
                 Random rd = new();
                 if (withAlpha)
-                    result += (char) (rd.Next(0, 2) == 0 ? rd.Next('0', '9' + 1) : rd.Next('A', 'Z' + 1));
+                    result += (char)(rd.Next(0, 2) == 0 ? rd.Next('0', '9' + 1) : rd.Next('A', 'Z' + 1));
                 else
                     result += rd.Next(0, 10);
             }
 
             return result;
         }
+        public static ISugarQueryable<T> CustomOrderBy<T>(this ISugarQueryable<T> arr, string key, bool desc) => arr.OrderByIF(!string.IsNullOrWhiteSpace(key), $"{key} {(desc ? "desc" : "asc")}");
     }
 }
