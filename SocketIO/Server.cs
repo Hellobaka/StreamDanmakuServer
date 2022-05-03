@@ -223,7 +223,7 @@ namespace StreamDanmaku_Server.SocketIO
                         Auth_Online(socket, data, Room.ResumeRoom);
                         break;
                     case "UploadCapture":
-                        Auth_Stream(socket, data, Room.ResumeRoom);
+                        Auth_Stream(socket, data, Room.UploadCapture);
                         break;
                     case "GetCaptures":
                         Auth_Admin(socket, data, Room.GetCaptures);
