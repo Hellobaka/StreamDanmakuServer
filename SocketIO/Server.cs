@@ -278,17 +278,11 @@ namespace StreamDanmaku_Server.SocketIO
                     case "StopStream_Admin":
                         Auth_Admin(socket, data, Room.StopStream_Admin);
                         break;
-                    case "BlockUser_Admin":
-                        Auth_Admin(socket, data, User.BlockUser_Admin);
-                        break;
                     case "GetDanmaku_Admin":
                         Auth_Admin(socket, data, Room.GetDanmaku_Admin);
                         break;
                     case "RemoveMonitor_Admin":
                         Auth_Admin(socket, data, Room.RemoveMonitor_Admin);
-                        break;
-                    case "UserShutUp_Admin":
-                        Auth_Admin(socket, data, User.UserShutUp_Admin);
                         break;
                     case "GetRoom_Admin":
                         Auth_Admin(socket, data, Room.GetRoom_Admin);
