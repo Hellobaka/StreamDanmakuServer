@@ -17,11 +17,11 @@ namespace StreamDanmaku_Server.Data
         /// <summary>
         /// 调用方名称
         /// </summary>
-        public string Account { get; set;}
+        public string Account { get; private init;}
         /// <summary>
         /// 操作名称
         /// </summary>
-        public string ActionName { get; set;}
+        public string ActionName { get; private init;}
         /// <summary>
         /// 操作是否成功
         /// </summary>
@@ -29,11 +29,11 @@ namespace StreamDanmaku_Server.Data
         /// <summary>
         /// 日志内容
         /// </summary>
-        public string Action { get; set;}
+        public string Action { get; private init;}
         /// <summary>
         /// 日志发生时间
         /// </summary>
-        public DateTime Time { get; set;}
+        public DateTime Time { get; private init;}
         /// <summary>
         /// 以系统作为调用方写日志
         /// </summary>

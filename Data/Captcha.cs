@@ -2,22 +2,39 @@ using System.Threading;
 
 namespace StreamDanmaku_Server.Data
 {
+    /// <summary>
+    /// 邮箱验证码类
+    /// </summary>
     public class Captcha
     {
         /// <summary>
         /// 验证码自动销毁时间，单位 秒
         /// </summary>
         public static int ExpiredTime = 60 * 10;
+
         /// <summary>
         /// 允许覆盖刷新验证码的时间，单位 秒
         /// </summary>
         public static int RefreshTime = 60 * 1;
+        /// <summary>
+        /// 所属的邮箱
+        /// </summary>
         public string Email { get; set; }
+        /// <summary>
+        /// 目标邮箱验证码
+        /// </summary>
         public string EmailCaptcha { get; set; }
-
+        /// <summary>
+        /// 过期时间累计
+        /// </summary>
         public int ExpiredTimeCount { get; set; }
-        public bool Continued { get; set; } = true;
-
+        /// <summary>
+        /// 能否继续执行标识
+        /// </summary>
+        private bool Continued { get; set; } = true;
+        /// <summary>
+        /// 构造函数
+        /// </summary>
         public Captcha()
         {
             new Thread(() =>
@@ -25,21 +42,25 @@ namespace StreamDanmaku_Server.Data
                 while (Continued)
                 {
                     Thread.Sleep(1000);
-                    if (ExpiredTimeCount == ExpiredTime)
+                    if (ExpiredTimeCount == ExpiredTime)// 达到销毁时
                     {
                         RemoveCaptcha();
                     }
+
                     ExpiredTimeCount++;
                 }
+
                 RemoveCaptcha();
             }).Start();
         }
-
+        /// <summary>
+        /// 移除验证码
+        /// </summary>
         public void RemoveCaptcha()
         {
             Online.Captcha.Remove(Email);
             Continued = false;
-            RuntimeLog.WriteSystemLog("RemoveCaptcha", $"Remove captcha Email={Email}", true);
+            RuntimeLog.WriteSystemLog("RemoveCaptcha", $"验证码销毁 邮箱={Email}", true);
         }
     }
 }

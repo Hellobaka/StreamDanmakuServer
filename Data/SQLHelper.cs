@@ -1,12 +1,10 @@
 ﻿using SqlSugar;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace StreamDanmaku_Server.Data
 {
+    /// <summary>
+    /// 数据库操作类
+    /// </summary>
     public static class SQLHelper
     {
         public static SqlSugarClient GetInstance() => new(new ConnectionConfig()
@@ -22,8 +20,6 @@ namespace StreamDanmaku_Server.Data
             var instance = GetInstance();
             instance.DbMaintenance.CreateDatabase();
             instance.CodeFirst.InitTables(typeof(RuntimeLog));
-            //instance.CodeFirst.InitTables(typeof(Online));
-            //instance.CodeFirst.InitTables(typeof(Room));
             instance.CodeFirst.InitTables(typeof(User));
         }
     }

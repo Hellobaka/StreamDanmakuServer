@@ -17,7 +17,13 @@
         /// 在大厅
         /// </summary>
         StandBy,
+        /// <summary>
+        /// 已被封禁(暂未使用
+        /// </summary>
         Banned,
+        /// <summary>
+        /// 离线
+        /// </summary>
         OffLine
     }
 

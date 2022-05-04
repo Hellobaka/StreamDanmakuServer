@@ -1,5 +1,8 @@
 ﻿namespace StreamDanmaku_Server.Enum
 {
+    /// <summary>
+    /// 错误码 其含义由ErrorCodeDict.cs解释
+    /// </summary>
     public enum ErrorCode
     {
         OK = 200,
