@@ -1,135 +1,191 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
+using JWT.Exceptions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using WebSocketSharp.Server;
 using StreamDanmaku_Server.Data;
-using WebSocketSharp;
-using JWT.Exceptions;
 using StreamDanmaku_Server.Enum;
-using System.Net;
-using System.Collections.Generic;
+using WebSocketSharp;
+using WebSocketSharp.Server;
 
 namespace StreamDanmaku_Server.SocketIO
 {
+    /// <summary>
+    /// WebSocket 连接器
+    /// </summary>
     public class Server
     {
-        WebSocketServer Instance;
-        ushort port;
+        /// <summary>
+        /// WebSocket 实例
+        /// </summary>
+        private readonly WebSocketServer _instance;
 
-        public Server(ushort Port)
+        /// <summary>
+        /// WebSocket 监听端口
+        /// </summary>
+        private readonly ushort _port;
+
+        /// <summary>
+        /// 构造函数
+        /// </summary>
+        /// <param name="port">监听端口</param>
+        public Server(ushort port)
         {
-            port = Port;
-            Instance = new(port);
-            Instance.AddWebSocketService<MsgHandler>("/main");
+            _port = port;
+            _instance = new WebSocketServer(_port);
+            _instance.AddWebSocketService<MsgHandler>("/main");
         }
 
+        /// <summary>
+        /// 开启端口监听
+        /// </summary>
         public void StartServer()
         {
-            Instance.Start();
-            Console.WriteLine($"Server URL: ws://127.0.0.1:{port}/main");
-            RuntimeLog.WriteSystemLog("WebSocketServer", $"Start Running on Port: {port}...", true);
+            _instance.Start();
+            Console.WriteLine($"WebSocket URL: ws://127.0.0.1:{_port}/main");
+            RuntimeLog.WriteSystemLog("WebSocketServer", $"WebSocket服务器开启 监听端口: {_port}...", true);
         }
 
+        /// <summary>
+        /// 停止端口监听
+        /// </summary>
         public void StopServer()
         {
-            Instance.Stop();
-            RuntimeLog.WriteSystemLog("WebSocketServer", $"Shut down Server...", true);
+            _instance.Stop();
+            RuntimeLog.WriteSystemLog("WebSocketServer", "WebSocket服务器关闭...", true);
         }
 
+        /// <summary>
+        /// 服务器级广播
+        /// </summary>
+        /// <param name="type">广播类型</param>
+        /// <param name="msg">广播内容</param>
         public static void BoardCast(string type, object msg)
         {
+            // 向在线用户广播
             foreach (var item in Online.Users)
             {
                 item.WebSocket.Emit(type, msg);
             }
+
+            // 向在线后台广播
             foreach (var item in Online.Admins)
             {
                 item.Emit(type, msg);
             }
         }
 
+        /// <summary>
+        /// 消息处理端
+        /// </summary>
         public class MsgHandler : WebSocketBehavior
         {
-            public User CurrentUser { get; set; } = null;
+            /// <summary>
+            /// 连接中已登录用户
+            /// </summary>
+            public User CurrentUser { get; set; }
+
+            /// <summary>
+            /// 连接中已登录用户类型, 默认为拉流端
+            /// </summary>
             public UserType UserType { get; set; } = UserType.Client;
-            public bool Authed { get; set; } = false;
-            public Room MonitoredDanmaku { get; set; } = null;
+
+            /// <summary>
+            /// 连接对方IP
+            /// </summary>
             public IPAddress ClientIP { get; set; }
 
+            /// <summary>
+            /// 后台连接是否已授权
+            /// </summary>
+            public bool Authed { get; set; }
+
+            /// <summary>
+            /// 后台连接监视弹幕房间
+            /// </summary>
+            public Room MonitoredDanmaku { get; set; }
+
+            /// <summary>
+            /// 触发消息
+            /// </summary>
+            /// <param name="e">消息事件</param>
             protected override void OnMessage(MessageEventArgs e)
             {
                 HandleMessage(this, e.Data);
             }
 
+            /// <summary>
+            /// 连接建立
+            /// </summary>
             protected override void OnOpen()
             {
                 ClientIP = Context.UserEndPoint.Address;
-                RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Connected, id={ID}, ip={ClientIP}", true);
+                RuntimeLog.WriteSystemLog("WebSocketServer", $"连接已建立, id={ID}, ip={ClientIP}", true);
             }
 
+            /// <summary>
+            /// 连接断开 认为是异常断开 包含房间销毁判断
+            /// </summary>
+            /// <param name="e">断开事件</param>
             protected override void OnClose(CloseEventArgs e)
             {
+                // 从在线列表移除后台连接
                 if (Online.Admins.Contains(this)) Online.Admins.Remove(this);
                 if (Online.Users.Contains(CurrentUser))
                 {
+                    // 从在线列表移除此用户
                     Online.Users.Remove(CurrentUser);
+                    // 如果用户在某个直播间内, 对房间内用户数量判断, 整个房间为空则销毁
                     if (CurrentUser.CurrentRoom != null)
                     {
                         switch (CurrentUser.Status)
                         {
                             case UserStatus.Streaming:
                                 CurrentUser.CurrentRoom.Server = null;
-                                CurrentUser.CurrentRoom.RoomBoardCast("StreamerOffline", new { from = CurrentUser.Id });
+                                // 主播断线
+                                CurrentUser.CurrentRoom.RoomBoardCast("StreamerOffline", new {from = CurrentUser.Id});
                                 break;
                             case UserStatus.Client:
                                 CurrentUser.CurrentRoom.Clients.Remove(this);
-                                CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new { from = CurrentUser.Id });
+                                CurrentUser.CurrentRoom.RoomBoardCast("OnLeave", new {from = CurrentUser.Id});
                                 break;
                         }
 
+                        // 如果房间为空则销毁房间
                         if (CurrentUser.CurrentRoom.Clients.Count == 0 && CurrentUser.CurrentRoom.Server == null)
                         {
-                            RuntimeLog.WriteSystemLog("Room Removed", $"RoomRemoved, id={CurrentUser.Id}", true);
-                            CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new { roomID = CurrentUser.Id });
-                            BoardCast("RoomRemove", new { roomID = CurrentUser.Id });
+                            RuntimeLog.WriteSystemLog("RoomRemoved", $"房间销毁, id={CurrentUser.Id}", true);
+                            CurrentUser.CurrentRoom.RoomBoardCast("RoomVanish", new {roomID = CurrentUser.Id});
+                            BoardCast("RoomRemove", new {roomID = CurrentUser.Id});
                             Online.Rooms.Remove(CurrentUser.CurrentRoom);
                         }
                     }
                 }
 
-                BoardCast("OnlineUserChange", new { count = Online.Users.Count });
-                RuntimeLog.WriteSystemLog("WebSocketServer", $"Client Disconnected, id={ID}", true);
+                // 广播在线人数变化
+                BoardCast("OnlineUserChange", new {count = Online.Users.Count});
+                RuntimeLog.WriteSystemLog("WebSocketServer", $"连接断开, id={ID}", true);
             }
 
+            /// <summary>
+            /// 发送消息 包含时间戳 可用于服务器延时
+            /// </summary>
+            /// <param name="type">消息类型</param>
+            /// <param name="msg">消息内容</param>
             public void Emit(string type, object msg)
             {
-                Send((new { type, data = new { msg, timestamp = Helper.TimeStampms } }).ToJson());
-            }
-
-            private static void RoomBoardCast(int roomID, string type, object msg)
-            {
-                var room = Online.Rooms.Find(x => x.RoomID == roomID);
-                try
-                {
-                    if (room != null)
-                    {
-                        room.Clients.ForEach(x => x.Emit(type, msg));
-                        room.Server?.WebSocket.Emit(type, msg);
-                    }
-                    else
-                    {
-                        RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast error, room is null", false);
-                    }
-                }
-                catch (Exception e)
-                {
-                    RuntimeLog.WriteSystemLog("BoardCast", $"BoardCast error, {e.Message}", false);
-                }
+                Send((new {type, data = new {msg, timestamp = Helper.TimeStampms}}).ToJson());
             }
         }
 
+        /// <summary>
+        /// 分发消息
+        /// </summary>
+        /// <param name="socket">WebSocket连接</param>
+        /// <param name="jsonText">消息内容</param>
         private static void HandleMessage(MsgHandler socket, string jsonText)
         {
             try
@@ -184,7 +240,7 @@ namespace StreamDanmaku_Server.SocketIO
                         Auth_Stream(socket, data, Room.OnLeave);
                         break;
                     case "OnlineUserCount":
-                        socket.Emit("OnlineUserCount", new { count = Online.Users.Count });
+                        socket.Emit("OnlineUserCount", new {count = Online.Users.Count});
                         break;
                     case "JoinRoom":
                         Auth_Online(socket, data, Room.JoinRoom);
@@ -255,63 +311,87 @@ namespace StreamDanmaku_Server.SocketIO
                     case "SendDanmaku_Admin":
                         Auth_Admin(socket, data, Room.SendDanmaku_Admin);
                         break;
-                    default:
-                        break;
                 }
             }
             catch (Exception e)
             {
                 socket.Emit("Error", Helper.SetError(ErrorCode.ParamsFormatError));
-                RuntimeLog.WriteSystemLog("WebSocketServer", $"Msg Parse Error, Msg: {e.Message}", false);
+                RuntimeLog.WriteSystemLog("WebSocketServer", $"消息解析错误, 内容={e.Message}", false);
             }
         }
 
+        /// <summary>
+        /// 后台获取日志
+        /// </summary>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">日志筛选选项</param>
+        /// <param name="onName">操作名称</param>
         private static void GetLogs_Admin(MsgHandler socket, JToken data, string onName)
         {
             using var db = SQLHelper.GetInstance();
-            string search = data["search"].ToString();
-            string logType = data["logType"]?.ToString();
-            string userSearch = data["userSearch"]?.ToString();
-            bool showSystemLog = (bool)data["showSystemLog"];
-            int pageSize = (int)data["itemsPerPage"];
-            if(pageSize == -1)
+            string search = data["search"].ToString(); // 粗匹配
+            string logType = data["logType"]?.ToString(); // 日志操作类型匹配
+            string userSearch = data["userSearch"]?.ToString(); // 筛选用户
+            bool showSystemLog = (bool) data["showSystemLog"]; // 是否显示系统日志
+            int pageSize = (int) data["itemsPerPage"]; // 每页多少条 -1则是显示所有日志
+            if (pageSize == -1)
             {
                 pageSize = int.MaxValue;
             }
-            int pageIndex = (int)data["page"];
-            var arr = data["sortBy"] as JArray;
+
+            int pageIndex = (int) data["page"]; // 第多少页
+            var arr = data["sortBy"] as JArray; // 排序选项, 内含排序的列名称
             string orderBy = string.Empty;
             bool orderByDesc = false;
-            if (arr.Count != 0)
+            if (arr != null && arr.Count != 0)
             {
                 orderBy = arr[0].ToString();
-                orderByDesc = (bool)(data["sortDesc"] as JArray)[0];
+                orderByDesc = (bool) (data["sortDesc"] as JArray)![0];// 是否降序, 第一项为bool表示是否降序
             }
+
             List<DateTime> date = new();
-            if(data["date"] as JArray != null)
+            if (data["date"] is JArray)
             {
-                foreach (var item in data["date"] as JArray)
+                foreach (var item in (JArray) data["date"])// 日志时间筛选
                 {
                     date.Add(DateTime.Parse(item.ToString()));
                 }
             }
-            List<RuntimeLog> r = new();
-            r = db.Queryable<RuntimeLog>()
+            // 按照上面的条件进行筛选
+            List<RuntimeLog> r = db.Queryable<RuntimeLog>()
                 .WhereIF(!string.IsNullOrWhiteSpace(logType), x => x.ActionName == logType)
                 .WhereIF(!string.IsNullOrWhiteSpace(userSearch), x => x.Account == userSearch)
                 .Where(x => showSystemLog || x.Account != "System")
                 .WhereIF(date.Count != 0, x => x.Time >= date[0] && x.Time <= date[1])
                 .CustomOrderBy(orderBy, orderByDesc).ToList();
+            // 假如粗匹配内容不为空, 则进行进一步过滤
             if (!string.IsNullOrWhiteSpace(search))
             {
-                r = r.Where(x => x.RowID.ToString().Contains(search) || x.Account.Contains(search) || x.ActionName.Contains(search) || x.Action.Contains(search)).ToList();
+                r = r.Where(x =>
+                    x.RowID.ToString().Contains(search) || x.Account.Contains(search) ||
+                    x.ActionName.Contains(search) || x.Action.Contains(search)).ToList();
             }
-            socket.Emit(onName, Helper.SetOK("ok", new { data = r.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), count = r.Count }));
+            // 按照前端要求发送数组与数组长度
+            socket.Emit(onName,
+                Helper.SetOK("ok",
+                    new {data = r.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), count = r.Count}));
         }
+        /// <summary>
+        /// 直播时才能调用的方法
+        /// </summary>
+        /// <param name="socket">直播 WebSocket 连接</param>
+        /// <param name="data">参数</param>
+        /// <param name="func">想要调用的函数</param>
         private static void Auth_Stream(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
         {
             Auth_Online(socket, data, func);
         }
+        /// <summary>
+        /// 在线就能调用的方法
+        /// </summary>
+        /// <param name="socket">在线 WebSocket 连接</param>
+        /// <param name="data">参数</param>
+        /// <param name="func">想要调用的函数</param>
         private static void Auth_Online(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string, User> func)
         {
             string onName = func.Method.Name;
@@ -324,33 +404,46 @@ namespace StreamDanmaku_Server.SocketIO
                 else
                 {
                     socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
-                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is null", false);
+                    RuntimeLog.WriteSystemLog(onName, "函数调用发生错误, 用户无效", false);
                 }
             }
             catch (Exception e)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
+                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}", false);
             }
         }
+        /// <summary>
+        /// 只有后台连接才能调用的方法
+        /// </summary>
+        /// <param name="socket">后台 WebSocket 连接</param>
+        /// <param name="data">参数</param>
+        /// <param name="func">想要调用的函数</param>
         private static void Auth_Admin(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string> func)
         {
             string onName = func.Method.Name;
             if (socket.UserType != UserType.Admin)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is not admin", false);
+                RuntimeLog.WriteSystemLog(onName, "函数调用发生错误, 用户不是后台连接", false);
                 return;
             }
+
             if (socket.Authed is false)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.NoAuth));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: user is not authed", false);
+                RuntimeLog.WriteSystemLog(onName, "函数调用发生错误, 此连接未经过授权", false);
                 return;
             }
+
             Auth_Non(socket, data, func);
         }
-
+        /// <summary>
+        /// 连接均可
+        /// </summary>
+        /// <param name="socket">普通 WebSocket 连接</param>
+        /// <param name="data">参数</param>
+        /// <param name="func">想要调用的函数</param>
         private static void Auth_Non(MsgHandler socket, JToken data, Action<MsgHandler, JToken, string> func)
         {
             string onName = func.Method.Name;
@@ -361,19 +454,24 @@ namespace StreamDanmaku_Server.SocketIO
             catch (Exception e)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, {e.Message}", false);
+                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}", false);
             }
         }
+        /// <summary>
+        /// 进行连接授权
+        /// </summary>
+        /// <param name="socket">WebSocket 连接</param>
+        /// <param name="data">内容</param>
         private static void GetInfo(MsgHandler socket, JToken data)
         {
             const string onName = "GetInfo";
             const string resultName = "GetInfoResult";
-            RuntimeLog.WriteSystemLog(onName, $"Receive {onName} Response, {data.ToString(Formatting.None)}", true);
+            RuntimeLog.WriteSystemLog(onName, $"进行连接授权, jwt={data.ToString(Formatting.None)}", true);
             try
             {
                 switch (data["type"].ToString())
                 {
-                    case "admin":
+                    case "admin":// 后台连接
                         socket.UserType = UserType.Admin;
                         string jwt = data["jwt"]?.ToString();
                         if (!string.IsNullOrWhiteSpace(jwt))
@@ -383,28 +481,32 @@ namespace StreamDanmaku_Server.SocketIO
                                 Helper.ParseJWT(jwt);
                                 socket.Authed = true;
                             }
-                            catch (Exception e) { }
+                            catch
+                            {
+                                socket.Authed = false;
+                                // jwt解析失败
+                            }
                         }
+
                         socket.Emit(resultName, Helper.SetOK());
                         break;
-                    case "client":
+                    case "client":// 客户端
                         try
                         {
                             JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName}, {data["jwt"]}", true);
-                            User user = User.GetUserByID((int)json["id"]);
+                            User user = User.GetUserByID((int) json["id"]);
                             if (user == null)
                             {
                                 socket.Emit(resultName, Helper.SetError(ErrorCode.InvalidUser));
-                                RuntimeLog.WriteSystemLog(onName, $"{onName} error, user is null", false);
+                                RuntimeLog.WriteSystemLog(onName, $"jwt解析失败, 无法获取用户信息", false);
                             }
-                            else
+                            else// 如果jwt解析通过则可获取到用户ID
                             {
                                 socket.CurrentUser = user;
-                                if (user.LastChange != (DateTime)json["statusChange"])
+                                if (user.LastChange != (DateTime) json["statusChange"])// 机密更改时间变化, 请求重新登录
                                 {
                                     socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
-                                    RuntimeLog.WriteSystemLog(onName, $"{onName} error, lastChange not match", false);
+                                    RuntimeLog.WriteSystemLog(onName, $"机密变更时间不符, 请求重新登录", false);
                                     return;
                                 }
 
@@ -412,42 +514,42 @@ namespace StreamDanmaku_Server.SocketIO
                                 {
                                     Online.Users.Add(user);
                                 }
+
                                 user.WebSocket = socket;
                                 // 保留
                                 Thread.Sleep(300);
                                 socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
                                 RuntimeLog.WriteSystemLog(onName,
-                                    $"{onName} success, user: id={user.Id}, name={user.NickName}", true);
+                                    $"连接授权成功, id={user.Id}, 昵称={user.NickName}", true);
                             }
                         }
-                        catch (TokenExpiredException)
+                        catch (TokenExpiredException)// Token过期
                         {
                             socket.Emit(resultName, Helper.SetError(ErrorCode.TokenExpired));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, TokenExpired", false);
+                            RuntimeLog.WriteSystemLog(onName, $"连接授权失败, Token已过期", false);
                         }
-                        catch (SignatureVerificationException)
+                        catch (SignatureVerificationException)// 签名验证失败
                         {
                             socket.Emit(resultName, Helper.SetError(ErrorCode.SignInvalid));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, Signature Verification Fail", false);
+                            RuntimeLog.WriteSystemLog(onName, $"连接授权失败, 签名验证失败", false);
                         }
                         catch (Exception ex)
                         {
                             socket.Emit(resultName, Helper.SetError(ErrorCode.UnknownError));
-                            RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
+                            RuntimeLog.WriteSystemLog(onName, $"连接授权失败, {ex.Message}", false);
                         }
-                        break;
-                    default:
+
                         break;
                 }
             }
             catch (Exception ex)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.ParamsFormatError));
-                RuntimeLog.WriteSystemLog(onName, $"{onName} error, msg: {ex.Message}", false);
+                RuntimeLog.WriteSystemLog(onName, $"连接授权失败, {ex.Message}", false);
             }
             finally
             {
-                BoardCast("OnlineUserChange", new { count = Online.Users.Count });
+                BoardCast("OnlineUserChange", new {count = Online.Users.Count});
             }
         }
     }
