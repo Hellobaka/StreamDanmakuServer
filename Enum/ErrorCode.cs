@@ -6,7 +6,7 @@
         DuplicateEmail = 301,
         DuplicateUsername = 302,
         WrongUserNameOrPassword = 303,
-        OldPasswordNotMatchNewPassword = 314,
+        OldPasswordEqualNewPassword = 314,
         PasswordFormatError = 304,
         EmailFormatError = 305,
         UserNameFormatError = 306,
