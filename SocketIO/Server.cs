@@ -271,6 +271,7 @@ namespace StreamDanmaku_Server.SocketIO
             using var db = SQLHelper.GetInstance();
             string search = data["search"].ToString();
             string logType = data["logType"]?.ToString();
+            string userSearch = data["userSearch"]?.ToString();
             bool showSystemLog = (bool)data["showSystemLog"];
             int pageSize = (int)data["itemsPerPage"];
             if(pageSize == -1)
@@ -286,10 +287,20 @@ namespace StreamDanmaku_Server.SocketIO
                 orderBy = arr[0].ToString();
                 orderByDesc = (bool)(data["sortDesc"] as JArray)[0];
             }
+            List<DateTime> date = new();
+            if(data["date"] as JArray != null)
+            {
+                foreach (var item in data["date"] as JArray)
+                {
+                    date.Add(DateTime.Parse(item.ToString()));
+                }
+            }
             List<RuntimeLog> r = new();
             r = db.Queryable<RuntimeLog>()
                 .WhereIF(!string.IsNullOrWhiteSpace(logType), x => x.ActionName == logType)
+                .WhereIF(!string.IsNullOrWhiteSpace(userSearch), x => x.Account == userSearch)
                 .Where(x => showSystemLog || x.Account != "System")
+                .WhereIF(date.Count != 0, x => x.Time >= date[0] && x.Time <= date[1])
                 .CustomOrderBy(orderBy, orderByDesc).ToList();
             if (!string.IsNullOrWhiteSpace(search))
             {
