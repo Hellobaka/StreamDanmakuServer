@@ -43,14 +43,14 @@ namespace StreamDanmaku_Server
         /// <returns>通用成功对象</returns>
         public static FunctionResult SetOK(string msg = "ok", object obj = null) =>
             new() {code = 200, msg = msg, data = obj};
+
         /// <summary>
         /// 返回失败对象
         /// </summary>
         /// <param name="code">错误码 枚举类型</param>
-        /// <param name="msg">?</param>
         /// <param name="obj">附加对象</param>
         /// <returns>通用失败对象</returns>
-        public static FunctionResult SetError(ErrorCode code, string msg = "err", object obj = null) =>
+        public static FunctionResult SetError(ErrorCode code, object obj = null) =>
             new() {code = (int) code, msg = ErrorCodeDict.Content[(int) code], data = obj};
 
         /// <summary>

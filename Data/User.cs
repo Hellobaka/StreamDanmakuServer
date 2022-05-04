@@ -326,7 +326,7 @@ namespace StreamDanmaku_Server.Data
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new {count = err.Count}));
+                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, new {count = err.Count}));
                 RuntimeLog.WriteUserLog("Admin",onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
             }
         }
@@ -393,7 +393,7 @@ namespace StreamDanmaku_Server.Data
             }
             else
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new {count = err.Count}));
+                socket.Emit(onName, Helper.SetError(ErrorCode.PartError, new {count = err.Count}));
                 RuntimeLog.WriteUserLog("Admin",onName, $"切换禁言状态失败，部分用户不存在，失败数量={count}", false);
             }
         }
