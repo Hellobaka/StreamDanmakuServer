@@ -294,7 +294,7 @@ namespace StreamDanmaku_Server.Data
             }
         }
         /// <summary>
-        /// 切换批量用户可直播状态
+        /// 后台切换批量用户可直播状态
         /// </summary>
         /// <param name="socket">后台 WebSocket 连接</param>
         /// <param name="data">uid: 用户ID数组；action: 想要切换到的bool</param>
@@ -322,12 +322,12 @@ namespace StreamDanmaku_Server.Data
             if (err.Count == 0)
             {
                 socket.Emit(onName, Helper.SetOK());
-                RuntimeLog.WriteSystemLog(onName, $"切换直播状态成功，数量={count}，操作={(bool) data["action"]}", true);
+                RuntimeLog.WriteUserLog("Admin", onName, $"切换直播状态成功，数量={count}，操作={(bool) data["action"]}", true);
             }
             else
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new {count = err.Count}));
-                RuntimeLog.WriteSystemLog(onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
+                RuntimeLog.WriteUserLog("Admin",onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
             }
         }
         /// <summary>
@@ -352,12 +352,12 @@ namespace StreamDanmaku_Server.Data
 
                 user.UpdateUser();
                 socket.Emit(onName, Helper.SetOK());
-                RuntimeLog.WriteSystemLog(onName, $"编辑用户信息成功, id={user.Id}", true);
+                RuntimeLog.WriteUserLog("Admin",onName, $"编辑用户信息成功, id={user.Id}", true);
             }
             else
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
-                RuntimeLog.WriteSystemLog(onName, $"编辑用户失败, 目标用户不存在，id={data["uid"]}", false);
+                RuntimeLog.WriteUserLog("Admin",onName, $"编辑用户失败, 目标用户不存在，id={data["uid"]}", false);
             }
         }
         /// <summary>
@@ -389,12 +389,12 @@ namespace StreamDanmaku_Server.Data
             if (err.Count == 0)
             {
                 socket.Emit(onName, Helper.SetOK());
-                RuntimeLog.WriteSystemLog(onName, $"切换禁言状态成功，数量={count}，操作={(bool) data["action"]}", true);
+                RuntimeLog.WriteUserLog("Admin",onName, $"切换禁言状态成功，数量={count}，操作={(bool) data["action"]}", true);
             }
             else
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.PartError, "", new {count = err.Count}));
-                RuntimeLog.WriteSystemLog(onName, $"切换禁言状态失败，部分用户不存在，失败数量={count}", false);
+                RuntimeLog.WriteUserLog("Admin",onName, $"切换禁言状态失败，部分用户不存在，失败数量={count}", false);
             }
         }
         /// <summary>
@@ -410,7 +410,7 @@ namespace StreamDanmaku_Server.Data
             List<object> r = new();
             users.ForEach(x => r.Add(x.WithoutSecret()));
             socket.Emit(onName, Helper.SetOK("ok", r));
-            RuntimeLog.WriteSystemLog(onName, $"后台拉取用户列表成功", true);
+            RuntimeLog.WriteUserLog("Admin",onName, $"后台拉取用户列表成功", true);
         }
 
         /// <summary>
