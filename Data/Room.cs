@@ -338,6 +338,7 @@ namespace StreamDanmaku_Server.Data
                     uid = item.RoomID,
                     nickname = item.CreatorName,
                     invite_code = item.InviteCode,
+                    title = item.Title,
                     start_time = item.CreateTime,
                     cap = $"{item.Clients.Count}/{item.Max}"
                 });
@@ -738,7 +739,15 @@ namespace StreamDanmaku_Server.Data
         }
 
         private static string GetRoomLogText(Room room) => $"房间ID={room.RoomID}，邀请码={room.InviteCode}";
-
+        /// <summary>
+        /// 通过房间ID或邀请码查询在线房间，未找到将返回房间不存在错误
+        /// </summary>
+        /// <param name="query">查询</param>
+        /// <param name="socket">调用连接</param>
+        /// <param name="onName">操作名称</param>
+        /// <param name="user">调用对象</param>
+        /// <param name="isAdmin">是否为后台调用</param>
+        /// <returns>查询到或null</returns>
         private static Room GetRoomByIDOrInviteCode(string query, MsgHandler socket, string onName, User user = null,
             bool isAdmin = false)
         {
