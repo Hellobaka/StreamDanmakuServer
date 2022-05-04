@@ -5,6 +5,10 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SqlSugar;
 using StreamDanmaku_Server.Enum;
+using TencentCloud.Captcha.V20190722;
+using TencentCloud.Captcha.V20190722.Models;
+using TencentCloud.Common;
+using TencentCloud.Common.Profile;
 using static StreamDanmaku_Server.SocketIO.Server;
 
 namespace StreamDanmaku_Server.Data
@@ -204,7 +208,7 @@ namespace StreamDanmaku_Server.Data
 
             Captcha captcha = new() {Email = email, EmailCaptcha = Helper.GenCaptcha(6, false)};
             Online.Captcha.Add(email, captcha);
-            RuntimeLog.WriteSystemLog(onName, $"申请验证码成功, 验证码={captcha}, 邮箱={email}", true);
+            RuntimeLog.WriteSystemLog(onName, $"申请验证码成功, 验证码={captcha.EmailCaptcha}, 邮箱={email}", true);
             socket.Emit(onName, Helper.SetOK());
         }
 
@@ -278,14 +282,21 @@ namespace StreamDanmaku_Server.Data
         /// <param name="user">调用对象</param>
         public static void ChangePassword(MsgHandler socket, JToken data, string onName, User user)
         {
-            string oldPassword = data["oldPassword"].ToString().ToUpper();
-            string newPassword = data["newPassword"].ToString().ToUpper();
+            string oldPassword = data["oldPassword"]?.ToString().ToUpper();
+            string newPassword = data["newPwd"].ToString().ToUpper();
             if (user.PassWord.ToUpper() != oldPassword)
             {
+                if(user.PassWord == newPassword)
+                {
+                    socket.Emit(onName, Helper.SetError(ErrorCode.OldPasswordEqualNewPassword));
+                    RuntimeLog.WriteUserLog(user, onName, $"密码修改失败, 旧密码与新密码相同", false);
+                    return;
+                }
                 user.LastChange = DateTime.Now;
                 user.PassWord = newPassword;
                 user.UpdateUser();
                 RuntimeLog.WriteUserLog(user, onName, $"密码修改成功, id={user.Id} 新密码={data["newPassword"]}", true);
+                socket.Emit(onName, Helper.SetOK());
             }
             else
             {
@@ -330,6 +341,46 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteUserLog("Admin",onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
             }
         }
+
+        public static void VerifyTXCaptcha(MsgHandler socket, JToken data, string onName)
+        {
+            Credential cred = new()
+            {
+                SecretId = Config.GetConfig<string>("TXCloud_SecretId"),
+                SecretKey = Config.GetConfig<string>("TXCloud_SecretKey"),
+            };
+            ClientProfile clientProfile = new();
+            HttpProfile httpProfile = new();
+            httpProfile.Endpoint = ("captcha.tencentcloudapi.com");
+            clientProfile.HttpProfile = httpProfile;
+
+            CaptchaClient client = new(cred, "", clientProfile);
+            DescribeCaptchaResultRequest req = new();
+            req.CaptchaType = 9;
+            req.Ticket = data["ticket"].ToString();
+            req.UserIp = socket.ClientIP.ToString();
+            req.Randstr = data["randstr"].ToString();
+            req.CaptchaAppId = Config.GetConfig<ulong>("Captcha_CaptchaAppId");
+            req.AppSecretKey = Config.GetConfig<string>("Captcha_AppSecretKey");
+            DescribeCaptchaResultResponse resp = client.DescribeCaptchaResultSync(req);
+            socket.Emit(onName, Helper.SetOK("ok", resp));
+        }
+
+        public static void CanCallCapture(MsgHandler socket, JToken data, string onName)
+        {
+            string email = data["email"].ToString();
+            using var db = SQLHelper.GetInstance();
+            var flag = db.Queryable<User>().Any(x => x.Email == email);
+            if(flag)
+            {
+                socket.Emit(onName, Helper.SetOK());
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+            }
+        }
+
         /// <summary>
         /// 后台编辑用户信息
         /// </summary>

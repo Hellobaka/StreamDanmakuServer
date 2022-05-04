@@ -305,6 +305,12 @@ namespace StreamDanmaku_Server.SocketIO
                     case "SendDanmaku_Admin":
                         Auth_Admin(socket, data, Room.SendDanmaku_Admin);
                         break;
+                    case "VerifyTXCaptcha":
+                        Auth_Non(socket, data, User.VerifyTXCaptcha);
+                        break;
+                    case "CanCallCapture":
+                        Auth_Non(socket, data, User.CanCallCapture);
+                        break;
                 }
             }
             catch (Exception e)
@@ -344,9 +350,9 @@ namespace StreamDanmaku_Server.SocketIO
             }
 
             List<DateTime> date = new();
-            if (data["date"] is JArray)
+            if (data["date"] is JArray array)
             {
-                foreach (var item in (JArray) data["date"])// 日志时间筛选
+                foreach (var item in array)// 日志时间筛选
                 {
                     date.Add(DateTime.Parse(item.ToString()));
                 }
@@ -463,11 +469,11 @@ namespace StreamDanmaku_Server.SocketIO
             RuntimeLog.WriteSystemLog(onName, $"进行连接授权, jwt={data.ToString(Formatting.None)}", true);
             try
             {
+                string jwt = data["jwt"]?.ToString();
                 switch (data["type"].ToString())
                 {
                     case "admin":// 后台连接
                         socket.UserType = UserType.Admin;
-                        string jwt = data["jwt"]?.ToString();
                         if (!string.IsNullOrWhiteSpace(jwt))
                         {
                             try
@@ -487,7 +493,12 @@ namespace StreamDanmaku_Server.SocketIO
                     case "client":// 客户端
                         try
                         {
-                            JObject json = JObject.Parse(Helper.ParseJWT(data["jwt"].ToString()));
+                            if (string.IsNullOrWhiteSpace(jwt))
+                            {
+                                socket.Emit(resultName, Helper.SetOK());
+                                return;
+                            }
+                            JObject json = JObject.Parse(Helper.ParseJWT(jwt));
                             User user = User.GetUserByID((int) json["id"]);
                             if (user == null)
                             {

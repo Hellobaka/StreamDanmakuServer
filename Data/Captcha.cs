@@ -60,7 +60,7 @@ namespace StreamDanmaku_Server.Data
         {
             Online.Captcha.Remove(Email);
             Continued = false;
-            RuntimeLog.WriteSystemLog("RemoveCaptcha", $"验证码销毁 邮箱={Email}", true);
+            RuntimeLog.WriteSystemLog("RemoveCaptcha", $"验证码销毁, 邮箱={Email}, 验证码={EmailCaptcha}", true);
         }
     }
 }
