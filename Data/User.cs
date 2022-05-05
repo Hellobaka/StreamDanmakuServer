@@ -320,6 +320,9 @@ namespace StreamDanmaku_Server.Data
                 var user = db.Queryable<User>().Where(x => x.Id == (int) item).First();
                 if (user != null)
                 {
+                    var online = Online.Users.Find(x => x.Id == user.Id);
+                    if (online != null) online.CanStream = (bool)data["action"];
+
                     user.CanStream = (bool) data["action"];
                     user.UpdateUser();
                     count++;
@@ -437,6 +440,8 @@ namespace StreamDanmaku_Server.Data
                 var user = db.Queryable<User>().Where(x => x.Id == (int) item).First();
                 if (user != null)
                 {
+                    var online = Online.Users.Find(x => x.Id == user.Id);
+                    if(online!=null) online.CanSendDanmaku = (bool)data["action"];
                     user.CanSendDanmaku = (bool) data["action"];
                     user.UpdateUser();
                     count++;
