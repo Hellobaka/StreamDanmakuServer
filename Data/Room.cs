@@ -319,6 +319,7 @@ namespace StreamDanmaku_Server.Data
             };
             room.DanmakuList.Add(danmaku);
             room.RoomBoardCast("OnDanmaku", danmaku);
+            socket.Emit(onName, Helper.SetOK());
             RuntimeLog.WriteUserLog("Admin", onName, $"后台发送弹幕，{GetRoomLogText(room)}，内容={data["content"]}", true);
         }
 
@@ -333,15 +334,7 @@ namespace StreamDanmaku_Server.Data
             List<object> r = new();
             foreach (var item in Online.Rooms)
             {
-                r.Add(new
-                {
-                    uid = item.RoomID,
-                    nickname = item.CreatorName,
-                    invite_code = item.InviteCode,
-                    title = item.Title,
-                    start_time = item.CreateTime,
-                    cap = $"{item.Clients.Count}/{item.Max}"
-                });
+                r.Add(item.WithoutSecret());
             }
 
             socket.Emit(onName, Helper.SetOK("ok", r));
@@ -360,7 +353,7 @@ namespace StreamDanmaku_Server.Data
             if (room == null) return;
 
             socket.MonitoredDanmaku = room;
-            socket.Emit(onName, room.DanmakuList);
+            socket.Emit(onName, Helper.SetOK("ok", room.DanmakuList));
             RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取房间弹幕列表成功，{GetRoomLogText(room)}", true);
         }
 
@@ -375,6 +368,7 @@ namespace StreamDanmaku_Server.Data
             var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin: true);
             if (room == null) return;
             room.CallToDestroy();
+            room.Enterable = false;
             RuntimeLog.WriteUserLog("Admin", onName, $"后台房间断流成功，{GetRoomLogText(room)}", true);
         }
 
@@ -411,7 +405,6 @@ namespace StreamDanmaku_Server.Data
                 };
                 client.DropLiveStreamSync(req);
                 Enterable = false;
-                RuntimeLog.WriteSystemLog("CutStream", $"Cut {InviteCode} room success", true);
             }
             catch (Exception e)
             {
@@ -605,7 +598,7 @@ namespace StreamDanmaku_Server.Data
         {
             if (!user.CanSendDanmaku)
             {
-                socket.Emit(onName, Helper.SetError(ErrorCode.UserCanNotSendDanmaku));
+                socket.Emit("SendDanmaku", Helper.SetError(ErrorCode.UserCanNotSendDanmaku));
                 return;
             }
 
@@ -621,7 +614,6 @@ namespace StreamDanmaku_Server.Data
             };
             room.DanmakuList.Add(danmaku);
             room.RoomBoardCast("OnDanmaku", danmaku);
-            Online.Admins.Where(x => x.MonitoredDanmaku == room).ToList().ForEach(x => x.Emit("OnDanmaku", danmaku));
             socket.Emit("SendDanmaku", Helper.SetOK("ok", danmaku));
             RuntimeLog.WriteUserLog(user, onName, $"发送弹幕成功，{GetRoomLogText(room)}，弹幕内容={danmaku.Content}", true);
         }
@@ -736,9 +728,10 @@ namespace StreamDanmaku_Server.Data
         {
             Clients.ForEach(x => x.Emit(type, msg));
             Server?.WebSocket.Emit(type, msg);
+            Online.Admins.Where(x => x.MonitoredDanmaku?.InviteCode == InviteCode).ToList().ForEach(x => x.Emit(type, msg));
         }
 
-        private static string GetRoomLogText(Room room) => $"房间ID={room.RoomID}，邀请码={room.InviteCode}";
+        private static string GetRoomLogText(Room room) => $"房间ID={room?.RoomID}，邀请码={room?.InviteCode}";
         /// <summary>
         /// 通过房间ID或邀请码查询在线房间，未找到将返回房间不存在错误
         /// </summary>
