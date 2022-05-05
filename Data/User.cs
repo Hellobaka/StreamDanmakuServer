@@ -341,7 +341,12 @@ namespace StreamDanmaku_Server.Data
                 RuntimeLog.WriteUserLog("Admin",onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
             }
         }
-
+        /// <summary>
+        /// 验证腾讯云验证码
+        /// </summary>
+        /// <param name="socket">普通 WebSocket 连接</param>
+        /// <param name="data">ticket：验证码票据；randstr：验证码随机码</param>
+        /// <param name="onName">操作名称</param>
         public static void VerifyTXCaptcha(MsgHandler socket, JToken data, string onName)
         {
             Credential cred = new()
@@ -365,7 +370,12 @@ namespace StreamDanmaku_Server.Data
             DescribeCaptchaResultResponse resp = client.DescribeCaptchaResultSync(req);
             socket.Emit(onName, Helper.SetOK("ok", resp));
         }
-
+        /// <summary>
+        /// 验证账户是否存在
+        /// </summary>
+        /// <param name="socket">普通 WebSocket 连接</param>
+        /// <param name="data">email：待验证账户</param>
+        /// <param name="onName">操作名称</param>
         public static void CanCallCapture(MsgHandler socket, JToken data, string onName)
         {
             string email = data["email"].ToString();
