@@ -480,6 +480,7 @@ namespace StreamDanmaku_Server.SocketIO
                             {
                                 Helper.ParseJWT(jwt);
                                 socket.Authed = true;
+                                if (!Online.Admins.Contains(socket)) Online.Admins.Add(socket);
                             }
                             catch
                             {
