@@ -648,11 +648,11 @@ namespace StreamDanmaku_Server.Data
         {
             //TODO: 文件夹使网页可读取, 日志
             var room = user.CurrentRoom;
-            string base64 = data["base64"].ToString();
+            string base64 = data["base64"].ToString().Replace("data:image/png;base64,", "");
             string fileName = $"{Helper.TimeStamp}.png";
             Directory.CreateDirectory($"Capture\\{room.InviteCode}");
-            File.WriteAllBytes($"{room.InviteCode}\\{fileName}", Convert.FromBase64String(base64));
-            room.Captures.Add(new {timestamp = Helper.TimeStamp, filename = $"Capture\\{room.InviteCode}\\{fileName}"});
+            File.WriteAllBytes($"Capture\\{room.InviteCode}\\{fileName}", Convert.FromBase64String(base64));
+            room.Captures.Add(new {timestamp = Helper.TimeStamp, filename = $"Capture/{room.InviteCode}/{fileName}"});
             RuntimeLog.WriteUserLog(user, onName, $"缩略图上传成功，{GetRoomLogText(user.CurrentRoom)}", true);
         }
 
