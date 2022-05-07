@@ -362,7 +362,7 @@ namespace StreamDanmaku_Server.SocketIO
                 .WhereIF(!string.IsNullOrWhiteSpace(logType), x => x.ActionName == logType)
                 .WhereIF(!string.IsNullOrWhiteSpace(userSearch), x => x.Account == userSearch)
                 .Where(x => showSystemLog || x.Account != "System")
-                .WhereIF(date.Count != 0, x => x.Time >= date[0] && x.Time <= date[1])
+                .WhereIF(date.Count != 0, x => x.Time >= date[0] && x.Time <= date[1].AddDays(1))
                 .CustomOrderBy(orderBy, orderByDesc).ToList();
             // 假如粗匹配内容不为空, 则进行进一步过滤
             if (!string.IsNullOrWhiteSpace(search))
