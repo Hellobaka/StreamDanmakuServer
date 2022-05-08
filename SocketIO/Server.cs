@@ -317,6 +317,21 @@ namespace StreamDanmaku_Server.SocketIO
                     case "GetMuteList":
                         Auth_Stream(socket, data, User.GetMuteList);
                         break;
+                    case "GetFriendList":
+                        Auth_Online(socket, data, User.GetFriendList);
+                        break;
+                    case "AddFriend":
+                        Auth_Online(socket, data, User.AddFriend);
+                        break;
+                    case "RemoveFriend":
+                        Auth_Online(socket, data, User.RemoveFriend);
+                        break;
+                    case "FindFriend":
+                        Auth_Online(socket, data, User.FindFriend);
+                        break;
+                    case "QueryFriendRoom":
+                        Auth_Online(socket, data, User.QueryFriendRoom);
+                        break;
                 }
             }
             catch (Exception e)

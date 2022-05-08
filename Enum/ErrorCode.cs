@@ -32,5 +32,9 @@
         UserCanNotSendDanmaku = 505,
         NoAuth = 506,
         PartError = 507,
+        AlreadyFriend = 508,
+        FriendNoRoom = 509,
+        FriendNotOnline = 510,
+        NoFriend = 511,
     }
 }

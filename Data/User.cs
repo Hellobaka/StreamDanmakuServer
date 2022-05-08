@@ -92,6 +92,11 @@ namespace StreamDanmaku_Server.Data
         /// </summary>
         [SugarColumn(ColumnDataType = "Text", IsJson = true)]
         public List<int> MutedUsers { get; set; } = new();
+        /// <summary>
+        /// 好友
+        /// </summary>
+        [SugarColumn(ColumnDataType = "Text", IsJson = true)]
+        public List<int> Friends { get; set; } = new();
 
         #region SQL逻辑
 
@@ -349,6 +354,100 @@ namespace StreamDanmaku_Server.Data
                 socket.Emit(onName, Helper.SetError(ErrorCode.PartError, new { count = err.Count }));
                 RuntimeLog.WriteUserLog("Admin", onName, $"切换直播状态失败，部分用户不存在, 失败数量={err.Count}", false);
             }
+        }
+
+        public static void RemoveFriend(MsgHandler socket, JToken data, string onName, User user)
+        {
+            int uid = (int)data["id"];
+            if (user.Friends.Contains(uid))
+            {
+                user.Friends.Remove(uid);
+                user.UpdateUser();
+                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteUserLog(user, onName, $"删除好友成功, id={uid}", true);
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.NoFriend));
+                RuntimeLog.WriteUserLog(user, onName, $"删除好友失败, id={uid}", false);
+            }
+        }
+
+        public static void FindFriend(MsgHandler socket, JToken data, string onName, User user)
+        {
+            string query = data["query"].ToString();
+            using var db = SQLHelper.GetInstance();
+            var list = db.Queryable<User>().Where(x => x.NickName.Contains(query) || x.Id.ToString() == query || x.Email == query).ToList();
+            socket.Emit(onName, Helper.SetOK("ok", list));
+            RuntimeLog.WriteUserLog(user, onName, $"查询好友成功, 条件={query}", true);
+        }
+
+        public static void QueryFriendRoom(MsgHandler socket, JToken data, string onName, User user)
+        {
+            int id = (int)data["id"];
+            var friend = Online.Users.First(x => x.Id == id);
+            if (friend == null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.FriendNotOnline));
+                RuntimeLog.WriteUserLog(user, onName, $"查询好友不在线或不存在, id={id}", false);
+                return;
+            }
+            else
+            {
+                if (friend.CurrentRoom == null)
+                {
+                    socket.Emit(onName, Helper.SetError(ErrorCode.FriendNoRoom));
+                    RuntimeLog.WriteUserLog(user, onName, $"好友不在任何房间内, id={id}", false);
+                    return;
+                }
+                else
+                {
+                    socket.Emit(onName, Helper.SetOK("ok", friend.CurrentRoom.RoomID));
+                    RuntimeLog.WriteUserLog(user, onName, $"查询好友所在房间成功, id={id}", true);
+                }
+            }
+
+        }
+
+        public static void AddFriend(MsgHandler socket, JToken data, string onName, User user)
+        {
+            int uid = (int)data["id"];
+            using var db = SQLHelper.GetInstance();
+            var friend = db.Queryable<User>().Where(x => x.Id == uid).First();
+            if (friend == null)
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                return;
+            };
+            if (user.Friends.Contains(uid))
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.AlreadyFriend));
+                return;
+            }
+            user.Friends.Add(uid);
+            user.UpdateUser();
+            socket.Emit(onName, Helper.SetOK());
+            RuntimeLog.WriteUserLog(user, onName, $"添加好友成功, id={uid}", true);
+        }
+
+        public static void GetFriendList(MsgHandler socket, JToken data, string onName, User user)
+        {
+            using var db = SQLHelper.GetInstance();
+            var q1 = db.Queryable<User>();
+            var q2 = db.Reportable(user.Friends).ToQueryable<int>();
+            var r = db.Queryable(q1, q2, (x, o) => x.Id == o.ColumnName).ToList();
+            var list = new List<object>();
+            foreach(var item in r)
+            {
+                list.Add(new
+                {
+                    item.Id,
+                    item.NickName,
+                    Online = Online.Users.Any(x=>x.Id == item.Id),
+                    CurrentRoom = Online.Users.FirstOrDefault(x => x.Id == item.Id)?.CurrentRoom?.WithoutSecret()
+                });
+            }
+            socket.Emit(onName, Helper.SetOK("ok", list));
         }
 
         public static void GetMuteList(MsgHandler socket, JToken data, string onName, User user)
