@@ -603,6 +603,11 @@ namespace StreamDanmaku_Server.Data
             }
 
             var room = user.CurrentRoom;
+            if(room.Server.MutedUsers.Any(x=>x == user.Id))
+            {
+                socket.Emit("SendDanmaku", Helper.SetError(ErrorCode.UserCanNotSendDanmaku));
+                return;
+            }
             var danmaku = new Danmaku()
             {
                 Content = data["content"].ToString().Replace("\n", "").Replace("\r", "").Replace("\t", "").Trim(),

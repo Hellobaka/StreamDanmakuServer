@@ -311,6 +311,12 @@ namespace StreamDanmaku_Server.SocketIO
                     case "CanCallCapture":
                         Auth_Non(socket, data, User.CanCallCapture);
                         break;
+                    case "MuteUser":
+                        Auth_Stream(socket, data, User.MuteUser);
+                        break;
+                    case "GetMuteList":
+                        Auth_Stream(socket, data, User.GetMuteList);
+                        break;
                 }
             }
             catch (Exception e)
