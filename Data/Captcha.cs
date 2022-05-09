@@ -32,6 +32,8 @@ namespace StreamDanmaku_Server.Data
         /// 能否继续执行标识
         /// </summary>
         private bool Continued { get; set; } = true;
+        public bool Verified { get; set; } = false;
+        public string ActionName { get; set; }
         /// <summary>
         /// 构造函数
         /// </summary>
@@ -53,11 +55,14 @@ namespace StreamDanmaku_Server.Data
                 RemoveCaptcha();
             }).Start();
         }
+        private bool called;
         /// <summary>
         /// 移除验证码
         /// </summary>
         public void RemoveCaptcha()
         {
+            if (called) return;
+            called = true;
             Online.Captcha.Remove(Email);
             Continued = false;
             RuntimeLog.WriteSystemLog("RemoveCaptcha", $"验证码销毁, 邮箱={Email}, 验证码={EmailCaptcha}", true);
