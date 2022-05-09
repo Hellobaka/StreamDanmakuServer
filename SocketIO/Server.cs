@@ -179,6 +179,10 @@ namespace StreamDanmaku_Server.SocketIO
             {
                 Send((new {type, data = new {msg, timestamp = Helper.TimeStampms}}).ToJson());
             }
+            public void CloseConnection()
+            {
+                Context.WebSocket.Close(CloseStatusCode.Normal, "Reconnect.");
+            }
         }
 
         /// <summary>
@@ -216,7 +220,10 @@ namespace StreamDanmaku_Server.SocketIO
                         Auth_Online(socket, data, User.ChangeEmail);
                         break;
                     case "ChangePassword":
-                        Auth_Online(socket, data, User.ChangePassword);
+                        Auth_Non(socket, data, User.ChangePassword);
+                        break;
+                    case "ChangePasswordOnline":
+                        Auth_Online(socket, data, User.ChangePasswordOnline);
                         break;
                     case "GetEmailCaptcha":
                         Auth_Non(socket, data, User.GetEmailCaptcha);
@@ -341,6 +348,9 @@ namespace StreamDanmaku_Server.SocketIO
                     case "GetFriendRequestList":
                         Auth_Online(socket, data, FriendRequest.GetFriendRequestList);
                         break;
+                    case "logout":
+                        Logout(socket);
+                        break;
                 }
             }
             catch (Exception e)
@@ -348,6 +358,11 @@ namespace StreamDanmaku_Server.SocketIO
                 socket.Emit("Error", Helper.SetError(ErrorCode.ParamsFormatError));
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"消息解析错误, 内容={e.Message}", false);
             }
+        }
+
+        private static void Logout(MsgHandler socket)
+        {
+            socket.CloseConnection();
         }
 
         /// <summary>
@@ -439,7 +454,7 @@ namespace StreamDanmaku_Server.SocketIO
             catch (Exception e)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
-                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}", false);
+                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}, {e.StackTrace}", false);
             }
         }
         /// <summary>
@@ -483,7 +498,7 @@ namespace StreamDanmaku_Server.SocketIO
             catch (Exception e)
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
-                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}", false);
+                RuntimeLog.WriteSystemLog(onName, $"函数调用发生错误, {e.Message}, {e.StackTrace}", false);
             }
         }
         /// <summary>
