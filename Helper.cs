@@ -41,7 +41,7 @@ namespace StreamDanmaku_Server
         /// <param name="msg">附加文本 默认ok</param>
         /// <param name="obj">附加对象 默认空</param>
         /// <returns>通用成功对象</returns>
-        public static FunctionResult SetOK(string msg = "ok", object obj = null) =>
+        public static FunctionResult SetOK(object obj = null, string msg = "ok") =>
             new() {code = 200, msg = msg, data = obj};
 
         /// <summary>
@@ -78,7 +78,7 @@ namespace StreamDanmaku_Server
         /// <summary>
         /// 秒级时间戳
         /// </summary>
-        public static long TimeStamp => (long) (DateTime.Now - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
+        public static long TimeStamp => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
 
         /// <summary>
         /// 将对象转换为JWT字符串
