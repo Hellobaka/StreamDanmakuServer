@@ -649,7 +649,6 @@ namespace StreamDanmaku_Server.Data
         /// <param name="user">调用对象</param>
         public static void UploadCapture(MsgHandler socket, JToken data, string onName, User user)
         {
-            //TODO: 文件夹使网页可读取, 日志
             var room = user.CurrentRoom;
             string base64 = data["base64"].ToString().Replace("data:image/png;base64,", "");
             string fileName = $"{Helper.TimeStamp}.png";

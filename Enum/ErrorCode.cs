@@ -37,5 +37,6 @@
         FriendNotOnline = 510,
         NoFriend = 511,
         NoFriendRequest = 512,
+        InvalidArgs = 513,
     }
 }
