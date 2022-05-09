@@ -120,7 +120,7 @@ namespace StreamDanmaku_Server.Data
             var room = Online.Rooms.Find(x => x.RoomID == user.Id);
             if (room != null)
             {
-                socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
+                socket.Emit(onName, Helper.SetOK(new {roomInfo = room.WithoutSecret()}));
                 RuntimeLog.WriteUserLog(user, onName, $"拉取房间信息成功，{GetRoomLogText(room)}", true);
             }
             else
@@ -143,7 +143,7 @@ namespace StreamDanmaku_Server.Data
                 x.InviteCode == data["query"]?.ToString() || x.RoomID == (int) data["query"]);
             if (room is {Enterable: true}) // 通过邀请码或ID查询到了房间, 返回房间ID以及密码要求
             {
-                socket.Emit(onName, Helper.SetOK("ok", new {id = room.RoomID, passwordNeeded = room.PasswordNeeded}));
+                socket.Emit(onName, Helper.SetOK(new {id = room.RoomID, passwordNeeded = room.PasswordNeeded}));
                 RuntimeLog.WriteUserLog(user, onName, $"房间加入成功，{GetRoomLogText(room)}", true);
             }
             else // 检索失败
@@ -194,7 +194,7 @@ namespace StreamDanmaku_Server.Data
         /// <param name="user"></param>
         public static void RoomList(MsgHandler socket, JToken data, string onName, User user)
         {
-            socket.Emit(onName, Helper.SetOK("ok", Online.Rooms.Where(x => x.IsPublic && x.Enterable).ToList()));
+            socket.Emit(onName, Helper.SetOK(Online.Rooms.Where(x => x.IsPublic && x.Enterable).ToList()));
             RuntimeLog.WriteUserLog(user, onName, $"拉取公开房间列表成功", true);
         }
 
@@ -337,7 +337,7 @@ namespace StreamDanmaku_Server.Data
                 r.Add(item.WithoutSecret());
             }
 
-            socket.Emit(onName, Helper.SetOK("ok", r));
+            socket.Emit(onName, Helper.SetOK(r));
             RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取正在直播房间列表成功", true);
         }
 
@@ -353,7 +353,7 @@ namespace StreamDanmaku_Server.Data
             if (room == null) return;
 
             socket.MonitoredDanmaku = room;
-            socket.Emit(onName, Helper.SetOK("ok", room.DanmakuList));
+            socket.Emit(onName, Helper.SetOK(room.DanmakuList));
             RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取房间弹幕列表成功，{GetRoomLogText(room)}", true);
         }
 
@@ -436,7 +436,7 @@ namespace StreamDanmaku_Server.Data
                 room.Clients.Add(socket);
             }
             RuntimeLog.WriteUserLog(user, onName, $"加入房间成功，{GetRoomLogText(room)}", true);
-            socket.Emit(onName, Helper.SetOK("ok", new {roomInfo = room.WithoutSecret()}));
+            socket.Emit(onName, Helper.SetOK(new {roomInfo = room.WithoutSecret()}));
             room.RoomBoardCast("OnEnter", user.Id);
         }
 
@@ -522,7 +522,7 @@ namespace StreamDanmaku_Server.Data
             string pushUrl = room.GenLivePushURL();
             // 似乎应当写进配置内
             socket.Emit(onName,
-                Helper.SetOK("ok", new {server = "rtmp://livepush.hellobaka.xyz/StreamDanmaku/", key = pushUrl}));
+                Helper.SetOK(new {server = "rtmp://livepush.hellobaka.xyz/StreamDanmaku/", key = pushUrl}));
             RuntimeLog.WriteUserLog(user, onName, $"获取推流URL成功，{GetRoomLogText(room)}，URL={pushUrl}", true);
         }
 
@@ -538,8 +538,7 @@ namespace StreamDanmaku_Server.Data
             var room = user.CurrentRoom;
             string pullUrl = room.GenLivePullURL(true);
             socket.Emit(onName,
-                Helper.SetOK("ok",
-                    new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
+                Helper.SetOK(new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
 
             RuntimeLog.WriteUserLog(user, onName, $"获取拉流URL成功，{GetRoomLogText(room)}，URL={pullUrl}", true);
         }
@@ -557,8 +556,7 @@ namespace StreamDanmaku_Server.Data
             
             string pullUrl = room.GenLivePullURL(true);
             socket.Emit(onName,
-                Helper.SetOK("ok",
-                    new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
+                Helper.SetOK(new {server = "http://livepull.hellobaka.xyz/StreamDanmaku/", key = pullUrl}));
 
             RuntimeLog.WriteUserLog("Admin", onName, $"后台获取拉流URL成功，{GetRoomLogText(room)}，URL={pullUrl}", true);
         }
@@ -619,7 +617,7 @@ namespace StreamDanmaku_Server.Data
             };
             room.DanmakuList.Add(danmaku);
             room.RoomBoardCast("OnDanmaku", danmaku);
-            socket.Emit("SendDanmaku", Helper.SetOK("ok", danmaku));
+            socket.Emit("SendDanmaku", Helper.SetOK(danmaku));
             RuntimeLog.WriteUserLog(user, onName, $"发送弹幕成功，{GetRoomLogText(room)}，弹幕内容={danmaku.Content}", true);
         }
 
@@ -633,7 +631,7 @@ namespace StreamDanmaku_Server.Data
         public static void GetRoomDanmaku(MsgHandler socket, JToken data, string onName, User user)
         {
             //TODO: 拉取条数可配置
-            socket.Emit(onName, Helper.SetOK("ok", user.CurrentRoom.DanmakuList.TakeLast(10).ToList()));
+            socket.Emit(onName, Helper.SetOK(user.CurrentRoom.DanmakuList.TakeLast(10).ToList()));
             RuntimeLog.WriteUserLog(user, onName, $"获取房间历史弹幕成功，{GetRoomLogText(user.CurrentRoom)}", true);
         }
 
@@ -672,7 +670,7 @@ namespace StreamDanmaku_Server.Data
             var room = GetRoomByIDOrInviteCode(data["invite_code"]?.ToString(), socket, onName, isAdmin:true);
             if (room == null) return;
             var arr = room.Captures;
-            socket.Emit(onName, Helper.SetOK("ok", arr));
+            socket.Emit(onName, Helper.SetOK(arr));
             RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取缩略图成功，{GetRoomLogText(room)}", true);
         }
 
