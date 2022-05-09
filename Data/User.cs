@@ -200,11 +200,18 @@ namespace StreamDanmaku_Server.Data
         /// 生成邮箱验证码
         /// </summary>
         /// <param name="socket">未登录 Websocket 连接</param>
-        /// <param name="data">email: 目标邮箱</param>
+        /// <param name="data">email: 目标邮箱; action: 验证码名称</param>
         /// <param name="onName">操作名称</param>
         public static void GetEmailCaptcha(MsgHandler socket, JToken data, string onName)
         {
             string email = data["email"].ToString();
+            string action = data["action"].ToString();
+            if(string.IsNullOrWhiteSpace(action))
+            {
+                RuntimeLog.WriteSystemLog(onName, $"申请验证码失败，参数缺失=action", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidArgs));
+                return;
+            }
             if (Online.Captcha.ContainsKey(email)) // 之前申请过，覆盖旧信息
             {
                 if (Online.Captcha[email].ExpiredTimeCount > Captcha.RefreshTime)
@@ -216,27 +223,53 @@ namespace StreamDanmaku_Server.Data
                     return;
                 }
             }
-
-            Captcha captcha = new() { Email = email, EmailCaptcha = Helper.GenCaptcha(6, false) };
+            //TODO: 真发送邮件
+            Captcha captcha = new() { Email = email, EmailCaptcha = Helper.GenCaptcha(6, false), ActionName = action };
             Online.Captcha.Add(email, captcha);
             RuntimeLog.WriteSystemLog(onName, $"申请验证码成功, 验证码={captcha.EmailCaptcha}, 邮箱={email}", true);
             socket.Emit(onName, Helper.SetOK());
+        }
+
+        public static void ChangePasswordOnline(MsgHandler socket, JToken data, string onName, User user)
+        {
+            string oldPassword = data["oldPassword"]?.ToString().ToUpper();
+            string newPassword = data["newPassword"].ToString().ToUpper();
+            if (user.PassWord.ToUpper() == oldPassword)
+            {
+                if (user.PassWord == newPassword)
+                {
+                    socket.Emit(onName, Helper.SetError(ErrorCode.OldPasswordEqualNewPassword));
+                    RuntimeLog.WriteUserLog(user, onName, $"密码修改失败, 旧密码与新密码相同", false);
+                    return;
+                }
+                user.LastChange = DateTime.Now;
+                user.PassWord = newPassword;
+                user.UpdateUser();
+                RuntimeLog.WriteUserLog(user, onName, $"密码修改成功, id={user.Id} 新密码={data["newPassword"]}", true);
+                socket.Emit(onName, Helper.SetOK());
+            }
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.WrongUserNameOrPassword));
+                RuntimeLog.WriteUserLog(user, onName, $"密码修改失败, 密码不匹配", false);
+            }
         }
 
         /// <summary>
         /// 验证邮箱验证码
         /// </summary>
         /// <param name="socket">普通 WebSocket 连接</param>
-        /// <param name="data">email: 目标邮箱; captcha: 验证码</param>
+        /// <param name="data">email: 目标邮箱; captcha: 验证码; action: 验证码名称</param>
         /// <param name="onName">操作名称</param>
         public static void VerifyEmailCaptcha(MsgHandler socket, JToken data, string onName)
         {
             string email = data["email"].ToString();
+
             if (Online.Captcha.ContainsKey(email))
             {
                 if (Online.Captcha[email].EmailCaptcha == data["captcha"].ToString())
                 {
-                    Online.Captcha.Remove(email);
+                    Online.Captcha[email].Verified = true;
                     RuntimeLog.WriteSystemLog(onName, $"验证验证码成功, 邮箱={email}", true);
                     socket.Emit(onName, Helper.SetOK());
                 }
@@ -288,32 +321,48 @@ namespace StreamDanmaku_Server.Data
         /// 修改密码
         /// </summary>
         /// <param name="socket">普通在线 WebSocket 连接</param>
-        /// <param name="data">oldPassword: 旧密码; newPassword: 新密码</param>
+        /// <param name="data">email: 目标用户; oldPassword: 旧密码; newPassword: 新密码</param>
         /// <param name="onName">操作名称</param>
         /// <param name="user">调用对象</param>
-        public static void ChangePassword(MsgHandler socket, JToken data, string onName, User user)
+        public static void ChangePassword(MsgHandler socket, JToken data, string onName)
         {
-            string oldPassword = data["oldPassword"]?.ToString().ToUpper();
-            string newPassword = data["newPwd"].ToString().ToUpper();
-            if (user.PassWord.ToUpper() != oldPassword)
+            string newPassword = data["newPassword"].ToString().ToUpper();
+            string email = data["email"].ToString();
+            if(!Online.Captcha.ContainsKey(email))
             {
-                if (user.PassWord == newPassword)
-                {
-                    socket.Emit(onName, Helper.SetError(ErrorCode.OldPasswordEqualNewPassword));
-                    RuntimeLog.WriteUserLog(user, onName, $"密码修改失败, 旧密码与新密码相同", false);
-                    return;
-                }
-                user.LastChange = DateTime.Now;
-                user.PassWord = newPassword;
-                user.UpdateUser();
-                RuntimeLog.WriteUserLog(user, onName, $"密码修改成功, id={user.Id} 新密码={data["newPassword"]}", true);
-                socket.Emit(onName, Helper.SetOK());
+                RuntimeLog.WriteSystemLog(onName, $"验证码失败，此邮箱未经过验证", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaInvalid));
+                return;
             }
             else
             {
+                var captcha = Online.Captcha[email];
+                if (captcha.ActionName != "ChangePassword")
+                {
+                    RuntimeLog.WriteSystemLog(onName, $"验证码失败，验证码名称不符", false);
+                    socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaInvalid));
+                    return;
+                }
+            }
+            using var db = SQLHelper.GetInstance();
+            User user = db.Queryable<User>().First(x => x.Email == email);
+            if(user == null)
+            {
+                RuntimeLog.WriteSystemLog(onName, $"验证码失败，邮箱检索用户失败", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
+                return;
+            }
+            if (user.PassWord == newPassword)
+            {
                 socket.Emit(onName, Helper.SetError(ErrorCode.OldPasswordEqualNewPassword));
                 RuntimeLog.WriteUserLog(user, onName, $"密码修改失败, 旧密码与新密码相同", false);
+                return;
             }
+            user.LastChange = DateTime.Now;
+            user.PassWord = newPassword;
+            user.UpdateUser();
+            RuntimeLog.WriteUserLog(user, onName, $"密码修改成功, id={user.Id} 新密码={data["newPassword"]}", true);
+            socket.Emit(onName, Helper.SetOK());
         }
         /// <summary>
         /// 后台切换批量用户可直播状态
@@ -638,11 +687,29 @@ namespace StreamDanmaku_Server.Data
         /// <param name="user">调用对象</param>
         public static void ChangeEmail(MsgHandler socket, JToken data, string onName, User user)
         {
-            // TODO: 邮箱验证码
             string email = data["newEmail"].ToString();
+            if (!Online.Captcha.ContainsKey(user.Email))
+            {
+                RuntimeLog.WriteSystemLog(onName, $"验证码失败，此邮箱未经过验证", false);
+                socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaInvalid));
+                return;
+            }
+            else
+            {
+                var captcha = Online.Captcha[email];
+                if (captcha.ActionName != "ChangeEmail")
+                {
+                    RuntimeLog.WriteSystemLog(onName, $"验证码失败，验证码名称不符", false);
+                    socket.Emit(onName, Helper.SetError(ErrorCode.CaptchaInvalid));
+                    return;
+                }
+            }
+
             if (VerifyEmail(email, out bool formatError, out bool duplicate))
             {
-                UpdateEmailByID(user.Id, email);
+                user.Email = email;
+                user.LastChange = DateTime.Now;
+                user.UpdateUser();
                 socket.Emit(onName, Helper.SetOK());
                 RuntimeLog.WriteSystemLog(onName,
                     $"修改邮箱成功, id={user.Id}, 旧邮箱={user.Email}, 新邮箱={email}", true);
@@ -731,9 +798,9 @@ namespace StreamDanmaku_Server.Data
         /// <param name="onName">操作名称</param>
         public static void Register(MsgHandler socket, JToken data, string onName)
         {
-            string email = data["email"].ToString();
-            string nickname = data["nickname"].ToString();
-            string password = data["password"].ToString();
+            string email = data["Email"].ToString();
+            string nickname = data["NickName"].ToString();
+            string password = data["Password"].ToString();
 
             var db = SQLHelper.GetInstance();
             VerifyEmail(email, out bool formatError, out bool duplicate);
@@ -769,6 +836,7 @@ namespace StreamDanmaku_Server.Data
             {
                 socket.Emit(onName, Helper.SetError(ErrorCode.PasswordFormatError));
                 RuntimeLog.WriteSystemLog(onName, $"注册失败，密码格式错误，密码={password}", false);
+                return;
             }
 
             User u = new()
