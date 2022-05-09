@@ -36,5 +36,6 @@
         FriendNoRoom = 509,
         FriendNotOnline = 510,
         NoFriend = 511,
+        NoFriendRequest = 512,
     }
 }
