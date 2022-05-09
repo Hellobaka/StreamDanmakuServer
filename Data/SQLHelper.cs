@@ -21,6 +21,7 @@ namespace StreamDanmaku_Server.Data
             instance.DbMaintenance.CreateDatabase();
             instance.CodeFirst.InitTables(typeof(RuntimeLog));
             instance.CodeFirst.InitTables(typeof(User));
+            instance.CodeFirst.InitTables(typeof(FriendRequest));
         }
     }
 }

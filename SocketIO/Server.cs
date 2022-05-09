@@ -320,9 +320,6 @@ namespace StreamDanmaku_Server.SocketIO
                     case "GetFriendList":
                         Auth_Online(socket, data, User.GetFriendList);
                         break;
-                    case "AddFriend":
-                        Auth_Online(socket, data, User.AddFriend);
-                        break;
                     case "RemoveFriend":
                         Auth_Online(socket, data, User.RemoveFriend);
                         break;
@@ -331,6 +328,18 @@ namespace StreamDanmaku_Server.SocketIO
                         break;
                     case "QueryFriendRoom":
                         Auth_Online(socket, data, User.QueryFriendRoom);
+                        break;
+                    case "GetFriendRequestCount":
+                        Auth_Online(socket, data, FriendRequest.GetFriendRequestCount);
+                        break;
+                    case "CreateFriendRequest":
+                        Auth_Online(socket, data, FriendRequest.CreateFriendRequest);
+                        break;
+                    case "HandleFriendRequest":
+                        Auth_Online(socket, data, FriendRequest.HandleFriendRequest);
+                        break;
+                    case "GetFriendRequestList":
+                        Auth_Online(socket, data, FriendRequest.GetFriendRequestList);
                         break;
                 }
             }
@@ -394,8 +403,7 @@ namespace StreamDanmaku_Server.SocketIO
             }
             // 按照前端要求发送数组与数组长度
             socket.Emit(onName,
-                Helper.SetOK("ok",
-                    new {data = r.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), count = r.Count}));
+                Helper.SetOK(new {data = r.Skip((pageIndex - 1) * pageSize).Take(pageSize).ToList(), count = r.Count}));
         }
         /// <summary>
         /// 直播时才能调用的方法
@@ -545,7 +553,7 @@ namespace StreamDanmaku_Server.SocketIO
                                 user.WebSocket = socket;
                                 // 保留
                                 Thread.Sleep(300);
-                                socket.Emit(resultName, Helper.SetOK("ok", user.WithoutSecret()));
+                                socket.Emit(resultName, Helper.SetOK(user.WithoutSecret()));
                                 RuntimeLog.WriteSystemLog(onName,
                                     $"连接授权成功, id={user.Id}, 昵称={user.NickName}", true);
                             }
