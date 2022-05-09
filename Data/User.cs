@@ -363,6 +363,13 @@ namespace StreamDanmaku_Server.Data
             {
                 user.Friends.Remove(uid);
                 user.UpdateUser();
+                using var db = SQLHelper.GetInstance();
+                var target = db.Queryable<User>().Where(x => x.Id == uid).First();
+                if(target != null)
+                {
+                    target.Friends.Remove(user.Id);
+                    target.UpdateUser();
+                }
                 socket.Emit(onName, Helper.SetOK());
                 RuntimeLog.WriteUserLog(user, onName, $"删除好友成功, id={uid}", true);
             }
@@ -377,9 +384,21 @@ namespace StreamDanmaku_Server.Data
         {
             string query = data["query"].ToString();
             using var db = SQLHelper.GetInstance();
-            var list = db.Queryable<User>().Where(x => x.NickName.Contains(query) || x.Id.ToString() == query || x.Email == query).ToList();
-            socket.Emit(onName, Helper.SetOK("ok", list));
-            RuntimeLog.WriteUserLog(user, onName, $"查询好友成功, 条件={query}", true);
+            var r = db.Queryable<User>().Where(x => x.NickName.Contains(query) || x.Id.ToString() == query).ToList();
+            List<object> list = new();
+            foreach (var item in r)
+            {
+                if (item.Id == user.Id) continue;
+                if (user.Friends.Contains(item.Id)) continue;
+                list.Add(new
+                {
+                    item.Id,
+                    item.NickName,
+                    Online = Online.Users.Any(x => x.Id == item.Id),
+                    CurrentRoom = Online.Users.FirstOrDefault(x => x.Id == item.Id)?.CurrentRoom?.WithoutSecret()
+                });
+           }
+            socket.Emit(onName, Helper.SetOK(list));
         }
 
         public static void QueryFriendRoom(MsgHandler socket, JToken data, string onName, User user)
@@ -402,32 +421,11 @@ namespace StreamDanmaku_Server.Data
                 }
                 else
                 {
-                    socket.Emit(onName, Helper.SetOK("ok", friend.CurrentRoom.RoomID));
+                    socket.Emit(onName, Helper.SetOK(friend.CurrentRoom.RoomID));
                     RuntimeLog.WriteUserLog(user, onName, $"查询好友所在房间成功, id={id}", true);
                 }
             }
 
-        }
-
-        public static void AddFriend(MsgHandler socket, JToken data, string onName, User user)
-        {
-            int uid = (int)data["id"];
-            using var db = SQLHelper.GetInstance();
-            var friend = db.Queryable<User>().Where(x => x.Id == uid).First();
-            if (friend == null)
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.InvalidUser));
-                return;
-            };
-            if (user.Friends.Contains(uid))
-            {
-                socket.Emit(onName, Helper.SetError(ErrorCode.AlreadyFriend));
-                return;
-            }
-            user.Friends.Add(uid);
-            user.UpdateUser();
-            socket.Emit(onName, Helper.SetOK());
-            RuntimeLog.WriteUserLog(user, onName, $"添加好友成功, id={uid}", true);
         }
 
         public static void GetFriendList(MsgHandler socket, JToken data, string onName, User user)
@@ -437,17 +435,17 @@ namespace StreamDanmaku_Server.Data
             var q2 = db.Reportable(user.Friends).ToQueryable<int>();
             var r = db.Queryable(q1, q2, (x, o) => x.Id == o.ColumnName).ToList();
             var list = new List<object>();
-            foreach(var item in r)
+            foreach (var item in r)
             {
                 list.Add(new
                 {
                     item.Id,
                     item.NickName,
-                    Online = Online.Users.Any(x=>x.Id == item.Id),
+                    Online = Online.Users.Any(x => x.Id == item.Id),
                     CurrentRoom = Online.Users.FirstOrDefault(x => x.Id == item.Id)?.CurrentRoom?.WithoutSecret()
                 });
             }
-            socket.Emit(onName, Helper.SetOK("ok", list));
+            socket.Emit(onName, Helper.SetOK(list));
         }
 
         public static void GetMuteList(MsgHandler socket, JToken data, string onName, User user)
@@ -456,7 +454,7 @@ namespace StreamDanmaku_Server.Data
             var q1 = db.Queryable<User>();
             var q2 = db.Reportable(user.MutedUsers).ToQueryable<int>();
             var list = db.Queryable(q1, q2, (x, o) => x.Id == o.ColumnName).Select(x => new { x.Id, x.NickName }).ToList();
-            socket.Emit(onName, Helper.SetOK("ok", list));
+            socket.Emit(onName, Helper.SetOK(list));
         }
 
         public static void MuteUser(MsgHandler socket, JToken data, string onName, User user)
@@ -493,7 +491,7 @@ namespace StreamDanmaku_Server.Data
             user.MutedUsers = user.MutedUsers.Distinct().ToList();
             user.UpdateUser();
             RuntimeLog.WriteUserLog(user, onName, $"用户房间禁言状态更改，数量={count}", true);
-            socket.Emit(onName, Helper.SetOK("ok", user.MutedUsers));
+            socket.Emit(onName, Helper.SetOK(user.MutedUsers));
         }
 
         /// <summary>
@@ -523,7 +521,7 @@ namespace StreamDanmaku_Server.Data
             req.CaptchaAppId = Config.GetConfig<ulong>("Captcha_CaptchaAppId");
             req.AppSecretKey = Config.GetConfig<string>("Captcha_AppSecretKey");
             DescribeCaptchaResultResponse resp = client.DescribeCaptchaResultSync(req);
-            socket.Emit(onName, Helper.SetOK("ok", resp));
+            socket.Emit(onName, Helper.SetOK(resp));
         }
         /// <summary>
         /// 验证账户是否存在
@@ -627,7 +625,7 @@ namespace StreamDanmaku_Server.Data
             var users = db.Queryable<User>().ToList();
             List<object> r = new();
             users.ForEach(x => r.Add(x.WithoutSecret()));
-            socket.Emit(onName, Helper.SetOK("ok", r));
+            socket.Emit(onName, Helper.SetOK(r));
             RuntimeLog.WriteUserLog("Admin", onName, $"后台拉取用户列表成功", true);
         }
 
@@ -693,7 +691,7 @@ namespace StreamDanmaku_Server.Data
                         user.WebSocket = socket;
                         user.LastLoginTime = DateTime.Now;
                         user.UpdateUser();
-                        socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(user)));
+                        socket.Emit(onName, Helper.SetOK(Helper.GetJWT(user)));
                         RuntimeLog.WriteUserLog(user, onName, $"用户登录成功, IP={socket.ClientIP}", true);
                     }
 
@@ -710,7 +708,7 @@ namespace StreamDanmaku_Server.Data
 
                     if (Config.GetConfig<string>("AdminPassword") == password)
                     {
-                        socket.Emit(onName, Helper.SetOK("ok", Helper.GetJWT(new User { Id = 0 })));
+                        socket.Emit(onName, Helper.SetOK(Helper.GetJWT(new User { Id = 0 })));
                         socket.Authed = true;
                         RuntimeLog.WriteUserLog("Admin", onName, $"后台登录成功, IP={socket.ClientIP}", true);
                         Online.Admins.Add(socket);
