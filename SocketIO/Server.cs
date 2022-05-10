@@ -388,7 +388,7 @@ namespace StreamDanmaku_Server.SocketIO
                 return;
             }
             socket.Emit(onName, Helper.SetOK(new { version = item["version"], url = item["url"], msg = item["msg"], time = item["time"] }));
-            RuntimeLog.WriteSystemLog(onName, "更新文件缺失", true);
+            RuntimeLog.WriteSystemLog(onName, "拉取更新完成", true);
         }
 
         private static void Logout(MsgHandler socket)
