@@ -223,9 +223,10 @@ namespace StreamDanmaku_Server.Data
                     return;
                 }
             }
-            //TODO: 真发送邮件
             Captcha captcha = new() { Email = email, EmailCaptcha = Helper.GenCaptcha(6, false), ActionName = action };
             Online.Captcha.Add(email, captcha);
+            Data.Email.SendEmail($"验证码：{captcha.EmailCaptcha}，有效期：{Captcha.ExpiredTime / 60}分钟", "邮箱验证码", email);
+
             RuntimeLog.WriteSystemLog(onName, $"申请验证码成功, 验证码={captcha.EmailCaptcha}, 邮箱={email}", true);
             socket.Emit(onName, Helper.SetOK());
         }

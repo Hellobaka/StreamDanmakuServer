@@ -27,7 +27,7 @@ namespace StreamDanmaku_Server.Data
         /// SMTP发送邮件
         /// </summary>
         /// <param name="M">邮件对象</param>
-        public static void SendEmail(Email M)
+        public static void Send(Email M)
         {
             try
             {
@@ -77,26 +77,28 @@ namespace StreamDanmaku_Server.Data
         /// <param name="body">内容</param>
         /// <param name="address">发送地址</param>
         /// <returns></returns>
-        public static Email GetTemplateMail(string subject, string body, string[] address)
+        public static Email GetTemplateMail(string subject, string body, string[] address) => new Email()
         {
-            return new Email()
-            {
-                Address = address,
-                Body = body,
-                DisplayName = "StreamDanmaku",
-                UseDefaultCredentials = false,
-                SubjectEncoding = Encoding.UTF8,
-                EnableSsl = true,
-                Host = Config.GetConfig<string>("Smtp_Host"),
-                Port = Config.GetConfig<int>("Smtp_Port"),
-                IsBodyHtml = false,
-                BodyEncoding = Encoding.UTF8,
-                From = Config.GetConfig<string>("Smtp_Account"),
-                Password = Config.GetConfig<string>("Smtp_Password"),
-                Priority = MailPriority.Normal,
-                CC = Array.Empty<string>(),
-                Subject = subject
-            };
+            Address = address,
+            Body = body,
+            DisplayName = "StreamDanmaku",
+            UseDefaultCredentials = false,
+            SubjectEncoding = Encoding.UTF8,
+            EnableSsl = true,
+            Host = Config.GetConfig<string>("Smtp_Host"),
+            Port = Config.GetConfig<int>("Smtp_Port"),
+            IsBodyHtml = false,
+            BodyEncoding = Encoding.UTF8,
+            From = Config.GetConfig<string>("Smtp_Account"),
+            Password = Config.GetConfig<string>("Smtp_Password"),
+            Priority = MailPriority.Normal,
+            CC = Array.Empty<string>(),
+            Subject = subject
+        };
+        public static void SendEmail(string text, string title, string target)
+        {
+            var email = GetTemplateMail(title, text, new string[] { target });
+            Send(email);
         }
     }
 }
