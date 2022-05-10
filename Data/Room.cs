@@ -630,7 +630,6 @@ namespace StreamDanmaku_Server.Data
         /// <param name="user">调用对象</param>
         public static void GetRoomDanmaku(MsgHandler socket, JToken data, string onName, User user)
         {
-            //TODO: 拉取条数可配置
             socket.Emit(onName, Helper.SetOK(user.CurrentRoom.DanmakuList.TakeLast(10).ToList()));
             RuntimeLog.WriteUserLog(user, onName, $"获取房间历史弹幕成功，{GetRoomLogText(user.CurrentRoom)}", true);
         }
