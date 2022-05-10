@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -351,6 +352,9 @@ namespace StreamDanmaku_Server.SocketIO
                     case "logout":
                         Logout(socket);
                         break;
+                    case "Update":
+                        Update(socket, data);
+                        break;
                 }
             }
             catch (Exception e)
@@ -358,6 +362,33 @@ namespace StreamDanmaku_Server.SocketIO
                 socket.Emit("Error", Helper.SetError(ErrorCode.ParamsFormatError));
                 RuntimeLog.WriteSystemLog("WebSocketServer", $"消息解析错误, 内容={e.Message}", false);
             }
+        }
+
+        private static void Update(MsgHandler socket, JToken data)
+        {
+            string onName = "Update";
+            string path = "Update.json";
+            if(!File.Exists(path))
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
+                RuntimeLog.WriteSystemLog(onName, "更新文件缺失", false);
+                return;
+            }
+            JArray json = JArray.Parse(File.ReadAllText(path));
+            string version = data["version"]?.ToString();
+            JObject item;
+            if (json.Count >= 1)
+            {
+                item = json[0] as JObject;
+            } 
+            else
+            {
+                socket.Emit(onName, Helper.SetError(ErrorCode.UnknownError));
+                RuntimeLog.WriteSystemLog(onName, "更新文件缺失", false);
+                return;
+            }
+            socket.Emit(onName, Helper.SetOK(new { version = item["version"], url = item["url"], msg = item["msg"], time = item["time"] }));
+            RuntimeLog.WriteSystemLog(onName, "更新文件缺失", true);
         }
 
         private static void Logout(MsgHandler socket)

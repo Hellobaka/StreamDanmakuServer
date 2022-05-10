@@ -42,7 +42,7 @@ namespace StreamDanmaku_Server
         /// <param name="obj">附加对象 默认空</param>
         /// <returns>通用成功对象</returns>
         public static FunctionResult SetOK(object obj = null, string msg = "ok") =>
-            new() {code = 200, msg = msg, data = obj};
+            new() { code = 200, msg = msg, data = obj };
 
         /// <summary>
         /// 返回失败对象
@@ -51,7 +51,7 @@ namespace StreamDanmaku_Server
         /// <param name="obj">附加对象</param>
         /// <returns>通用失败对象</returns>
         public static FunctionResult SetError(ErrorCode code, object obj = null) =>
-            new() {code = (int) code, msg = ErrorCodeDict.Content[(int) code], data = obj};
+            new() { code = (int)code, msg = ErrorCodeDict.Content[(int)code], data = obj };
 
         /// <summary>
         /// 扩展方法 快捷调用对象序列化
@@ -73,12 +73,12 @@ namespace StreamDanmaku_Server
         /// 毫秒级时间戳
         /// </summary>
         public static long TimeStampms =>
-            (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
+            (long)(DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalMilliseconds;
 
         /// <summary>
         /// 秒级时间戳
         /// </summary>
-        public static long TimeStamp => (long) (DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
+        public static long TimeStamp => (long)(DateTime.Now.ToUniversalTime() - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
 
         /// <summary>
         /// 将对象转换为JWT字符串
@@ -114,7 +114,7 @@ namespace StreamDanmaku_Server
             {
                 Random rd = new();
                 if (withAlpha)
-                    result += (char) (rd.Next(0, 2) == 0 ? rd.Next('0', '9' + 1) : rd.Next('A', 'Z' + 1));
+                    result += (char)(rd.Next(0, 2) == 0 ? rd.Next('0', '9' + 1) : rd.Next('A', 'Z' + 1));
                 else
                     result += rd.Next(0, 10);
             }
@@ -130,5 +130,19 @@ namespace StreamDanmaku_Server
         /// <typeparam name="T">调用的T</typeparam>
         public static ISugarQueryable<T> CustomOrderBy<T>(this ISugarQueryable<T> arr, string key, bool desc) =>
             arr.OrderByIF(!string.IsNullOrWhiteSpace(key), $"{key} {(desc ? "desc" : "asc")}");
+        public static bool VersionCompare(string version1, string version2)
+        {
+            if (string.IsNullOrWhiteSpace(version1) || string.IsNullOrWhiteSpace(version2)) return false;
+            var va = version1.Split('.');
+            var vb = version2.Split('.');
+            if (va.Length != vb.Length) return false;
+            int va_value = 0, vb_value = 0;
+            for (int i = 0; i < va.Length; i++)
+            {
+                va_value += Convert.ToInt32(va[i]) * (int)Math.Pow(10, 2 - i);
+                vb_value += Convert.ToInt32(vb[i]) * (int)Math.Pow(10, 2 - i);
+            }
+            return va_value > vb_value;
+        }
     }
 }
