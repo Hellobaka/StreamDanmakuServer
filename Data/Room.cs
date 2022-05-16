@@ -572,7 +572,7 @@ namespace StreamDanmaku_Server.Data
         {
             var room = Online.Rooms.First(x => x.RoomID == user.Id);
             room.Enterable = (bool) data["flag"];
-            if (room.Enterable)
+            if (room.Enterable && room.IsPublic)
             {
                 BoardCast("RoomAdd", room.WithoutSecret());
             }
