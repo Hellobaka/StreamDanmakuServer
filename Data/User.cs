@@ -418,6 +418,11 @@ namespace StreamDanmaku_Server.Data
                 if(target != null)
                 {
                     target.Friends.Remove(user.Id);
+                    if(Online.Users.Any(x=>x.Id == target.Id))
+                    {
+                        var online = Online.Users.Find(x => x.Id == target.Id);
+                        if (online != null) online.Friends.Remove(user.Id);
+                    }
                     target.UpdateUser();
                 }
                 socket.Emit(onName, Helper.SetOK());
